@@ -12,6 +12,7 @@ from datetime import UTC, datetime, timedelta
 
 import httpx
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 from sqlalchemy import func, select
 
@@ -23,6 +24,7 @@ from sitewatch.db.session import make_engine, make_sessionmaker
 from sitewatch.notify import Notifier, build_notifier
 from sitewatch.observability.logging import log_event
 from sitewatch.observability.metrics import emit as emit_metrics
+from sitewatch.reports.rollups import daily_maintenance
 from sitewatch.worker.runner import Runner
 
 log = logging.getLogger("sitewatch.worker")
@@ -138,6 +140,12 @@ class Worker:
             check_errors=stats.get("check_errors", 0),
         )
 
+    async def daily_maintenance(self) -> None:
+        """Roll yesterday up and purge raw results past the retention window."""
+        async with self.sessionmaker() as session, session.begin():
+            summary = await daily_maintenance(session)
+        log_event(log, "daily_maintenance", **summary)
+
     def stop(self) -> None:
         self._stop.set()
 
@@ -155,6 +163,16 @@ class Worker:
             id="refresh_jobs",
             max_instances=1,
             coalesce=True,
+        )
+        # 00:20 UTC: late enough that yesterday is definitely over, early enough
+        # that a monthly report run in the morning has the numbers it needs.
+        self.scheduler.add_job(
+            self.daily_maintenance,
+            CronTrigger(hour=0, minute=20, timezone=UTC),
+            id="daily_maintenance",
+            max_instances=1,
+            coalesce=True,
+            misfire_grace_time=3600,
         )
         self.scheduler.add_job(
             self.heartbeat,

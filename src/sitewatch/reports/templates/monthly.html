@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>{{ report.site_name }} · {{ report.month_name }} · Sitewatch</title>
+</head>
+<!-- Inline styles and a table layout: this is written to survive being
+     forwarded by email, where stylesheets and modern CSS do not travel. -->
+<body style="margin:0;padding:24px;background:#f6f7f9;font:15px/1.55 -apple-system,'Segoe UI',system-ui,sans-serif;color:#1a1d26;">
+  <div style="max-width:640px;margin:0 auto;background:#fff;border:1px solid #e2e5ea;border-radius:10px;padding:28px;">
+
+    <p style="margin:0 0 4px;color:#5b6373;font-size:13px;letter-spacing:.06em;text-transform:uppercase;">
+      {{ report.month_name }} website report
+    </p>
+    <h1 style="margin:0 0 2px;font-size:22px;">{{ report.site_name }}</h1>
+    <p style="margin:0 0 24px;color:#5b6373;">{{ report.domain }}</p>
+
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:24px;">
+      <tr>
+        <td style="padding:14px;background:#f6f7f9;border-radius:8px;" width="50%">
+          <div style="color:#5b6373;font-size:13px;">Uptime</div>
+          <div style="font-size:26px;font-weight:600;">{{ report.uptime_text }}</div>
+        </td>
+        <td width="12"></td>
+        <td style="padding:14px;background:#f6f7f9;border-radius:8px;" width="50%">
+          <div style="color:#5b6373;font-size:13px;">Downtime</div>
+          <div style="font-size:26px;font-weight:600;">{{ report.downtime_text }}</div>
+        </td>
+      </tr>
+    </table>
+
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin-bottom:26px;">
+      <tr>
+        <td style="padding:8px 0;border-bottom:1px solid #eef0f3;color:#5b6373;">Checks run</td>
+        <td style="padding:8px 0;border-bottom:1px solid #eef0f3;text-align:right;">{{ "{:,}".format(report.checks_run) }}</td>
+      </tr>
+      <tr>
+        <td style="padding:8px 0;border-bottom:1px solid #eef0f3;color:#5b6373;">Typical response time (p50)</td>
+        <td style="padding:8px 0;border-bottom:1px solid #eef0f3;text-align:right;">{{ report.p50_ms or "-" }} ms</td>
+      </tr>
+      <tr>
+        <td style="padding:8px 0;border-bottom:1px solid #eef0f3;color:#5b6373;">Slowest typical (p95)</td>
+        <td style="padding:8px 0;border-bottom:1px solid #eef0f3;text-align:right;">{{ report.p95_ms or "-" }} ms</td>
+      </tr>
+      <tr>
+        <td style="padding:8px 0;color:#5b6373;">Days covered</td>
+        <td style="padding:8px 0;text-align:right;">{{ report.days_covered }} of {{ report.days_in_month }}</td>
+      </tr>
+    </table>
+
+    <h2 style="font-size:15px;margin:0 0 10px;">
+      {% if report.incidents %}What happened{% else %}Nothing went wrong{% endif %}
+    </h2>
+    {% if report.incidents %}
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
+        {% for incident in report.incidents %}
+          <tr>
+            <td style="padding:10px 0;border-bottom:1px solid #eef0f3;">
+              <div style="font-weight:600;">
+                {{ incident.opened_at.strftime('%d %b, %H:%M') }} UTC
+                <span style="font-weight:400;color:#5b6373;">
+                  {% if incident.resolved_at %}
+                    · resolved after {{ format_duration(incident.resolved_at - incident.opened_at) }}
+                  {% else %}
+                    · still open
+                  {% endif %}
+                </span>
+              </div>
+              <div style="color:#5b6373;">{{ incident.check_kind }}: {{ incident.summary }}</div>
+            </td>
+          </tr>
+        {% endfor %}
+      </table>
+    {% else %}
+      <p style="margin:0 0 8px;color:#5b6373;">
+        No incidents. The site answered every check, its certificate and domain are valid,
+        and its DNS matched the recorded baseline all month.
+      </p>
+    {% endif %}
+
+    {% if report.daily %}
+      <h2 style="font-size:15px;margin:26px 0 10px;">Day by day</h2>
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;font-size:13px;">
+        <tr style="color:#5b6373;text-align:left;">
+          <th style="padding:6px 0;font-weight:600;">Day</th>
+          <th style="padding:6px 0;font-weight:600;text-align:right;">Uptime</th>
+          <th style="padding:6px 0;font-weight:600;text-align:right;">p50</th>
+          <th style="padding:6px 0;font-weight:600;text-align:right;">p95</th>
+          <th style="padding:6px 0;font-weight:600;text-align:right;">Checks</th>
+        </tr>
+        {% for row in report.daily %}
+          <tr>
+            <td style="padding:5px 0;border-top:1px solid #eef0f3;">{{ row.day.strftime('%d %b') }}</td>
+            <td style="padding:5px 0;border-top:1px solid #eef0f3;text-align:right;">
+              {{ "%.2f%%"|format(row.uptime_percent) if row.uptime_percent is not none else "-" }}
+            </td>
+            <td style="padding:5px 0;border-top:1px solid #eef0f3;text-align:right;">{{ row.p50_ms or "-" }}</td>
+            <td style="padding:5px 0;border-top:1px solid #eef0f3;text-align:right;">{{ row.p95_ms or "-" }}</td>
+            <td style="padding:5px 0;border-top:1px solid #eef0f3;text-align:right;">{{ row.results }}</td>
+          </tr>
+        {% endfor %}
+      </table>
+    {% endif %}
+
+    <p style="margin:26px 0 0;color:#5b6373;font-size:13px;">
+      Checked every five minutes by Sitewatch, OBdesign's monitoring service:
+      uptime and response time, page content, TLS certificate, domain registration,
+      DNS records and email authentication.
+    </p>
+  </div>
+</body>
+</html>

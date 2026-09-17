@@ -43,6 +43,8 @@ async def dns_site(sessionmaker) -> int:
                                 "tls": False,
                                 "domain": False,
                                 "email_auth": False,
+                                "links": False,
+                                "form": False,
                             },
                         }
                     ]

@@ -23,7 +23,7 @@ from sqlalchemy.orm import selectinload
 from sitewatch.checks import DEFAULT_INTERVALS
 from sitewatch.db.models import Check, Site
 
-SEEDED_KINDS = ("uptime", "content", "tls", "domain", "dns", "email_auth")
+SEEDED_KINDS = ("uptime", "content", "tls", "domain", "dns", "email_auth", "links", "form")
 
 
 class SiteEntry(BaseModel):
@@ -36,6 +36,9 @@ class SiteEntry(BaseModel):
     intervals: dict[str, int] = Field(default_factory=dict)
     checks: dict[str, bool] = Field(default_factory=dict)
     spam_ignore: list[str] = Field(default_factory=list)
+    # The contact page. Defaults to https://<domain>/contact; set "" to switch
+    # the form check off for a site that has no contact page.
+    contact_url: str | None = None
     # False keeps the site and its history but stops checking it.
     active: bool = True
 
@@ -121,6 +124,26 @@ def check_specs(entry: SiteEntry, defaults: dict[str, dict[str, int]]) -> list[C
         CheckSpec("domain", f"domain:{entry.domain}", intervals["domain"], {}, enabled("domain"))
     )
     specs.append(CheckSpec("dns", f"dns:{entry.domain}", intervals["dns"], {}, enabled("dns")))
+    specs.append(
+        CheckSpec(
+            "links",
+            f"links:{entry.page_urls()[0]}",
+            intervals["links"],
+            {"url": entry.page_urls()[0]},
+            enabled("links"),
+        )
+    )
+    form_config = {"contact_url": entry.contact_url} if entry.contact_url else {}
+    specs.append(
+        CheckSpec(
+            "form",
+            f"form:{entry.domain}",
+            intervals["form"],
+            form_config,
+            # A site with no contact page says so rather than failing daily.
+            enabled("form") and entry.contact_url != "",
+        )
+    )
     specs.append(
         CheckSpec(
             "email_auth",

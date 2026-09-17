@@ -5,14 +5,16 @@ generate a migration with `alembic revision --autogenerate -m "..."` and read it
 before committing.
 """
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 from sqlalchemy import (
     ARRAY,
     Boolean,
     CheckConstraint,
+    Date,
     DateTime,
+    Float,
     ForeignKey,
     Index,
     Integer,
@@ -130,6 +132,34 @@ class DnsBaseline(Base):
     site_id: Mapped[int] = mapped_column(ForeignKey("sites.id", ondelete="CASCADE"))
     records: Mapped[dict[str, Any]]
     accepted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class DailyRollup(Base):
+    """One row per site per day, kept forever.
+
+    Raw `check_results` are purged after 90 days (about 3,500 rows a day at 11
+    sites), but the numbers a monthly report needs are small and worth keeping:
+    uptime, response-time percentiles, incidents and downtime.
+    """
+
+    __tablename__ = "daily_rollups"
+    __table_args__ = (UniqueConstraint("site_id", "day"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    site_id: Mapped[int] = mapped_column(ForeignKey("sites.id", ondelete="CASCADE"), index=True)
+    day: Mapped[date] = mapped_column(Date)
+    results: Mapped[int] = mapped_column(Integer)
+    ok_results: Mapped[int] = mapped_column(Integer)
+    uptime_checks: Mapped[int] = mapped_column(Integer)
+    uptime_ok: Mapped[int] = mapped_column(Integer)
+    uptime_percent: Mapped[float | None] = mapped_column(Float)
+    p50_ms: Mapped[int | None] = mapped_column(Integer)
+    p95_ms: Mapped[int | None] = mapped_column(Integer)
+    incidents_opened: Mapped[int] = mapped_column(Integer, default=0)
+    downtime_seconds: Mapped[int] = mapped_column(Integer, default=0)
+    computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+    site: Mapped[Site] = relationship()
 
 
 class Alert(Base):

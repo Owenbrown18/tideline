@@ -6,6 +6,8 @@ sitewatch worker               run the scheduler until stopped
 sitewatch api                  run the API and dashboard (uvicorn)
 sitewatch check <domain> ...   run checks once and print the results (no database)
 sitewatch run-once --kind dns  run every enabled check of a kind now, writing results
+sitewatch rollup [--day]       summarise a day into daily_rollups, and purge old raw results
+sitewatch report --month 2026-09 [--site domain] [--email]   monthly report(s)
 """
 
 import argparse
@@ -94,6 +96,79 @@ def cmd_run_once(args: argparse.Namespace) -> None:
     asyncio.run(_run_once(args.kind, args.site))
 
 
+async def _rollup(day_text: str | None) -> None:
+    from datetime import UTC, date, datetime, timedelta
+
+    from sitewatch.db.session import make_engine, make_sessionmaker
+    from sitewatch.reports.rollups import purge_old_results, rollup_day
+
+    engine = make_engine(get_settings().database_url)
+    try:
+        async with make_sessionmaker(engine)() as session, session.begin():
+            day = (
+                date.fromisoformat(day_text)
+                if day_text
+                else (datetime.now(UTC) - timedelta(days=1)).date()
+            )
+            sites = await rollup_day(session, day)
+            purged = await purge_old_results(session, datetime.now(UTC))
+        print(
+            json.dumps(
+                {"event": "rollup", "day": day.isoformat(), "sites": sites, "purged": purged}
+            )
+        )
+    finally:
+        await engine.dispose()
+
+
+def cmd_rollup(args: argparse.Namespace) -> None:
+    asyncio.run(_rollup(args.day))
+
+
+async def _report(month: str, domain: str | None, email: bool, out_dir: str | None) -> None:
+    from sqlalchemy import select
+
+    from sitewatch.db.models import Site
+    from sitewatch.db.session import make_engine, make_sessionmaker
+    from sitewatch.notify.ses import SesNotifier
+    from sitewatch.reports.monthly import build_report, render_html, render_text
+
+    year, month_number = (int(part) for part in month.split("-"))
+    settings = get_settings()
+    # Reports go to Owen only, the same single recipient as every alert.
+    notifier = (
+        SesNotifier(settings.aws_region, settings.alert_sender, settings.alert_email)
+        if email
+        else None
+    )
+    engine = make_engine(settings.database_url)
+    try:
+        async with make_sessionmaker(engine)() as session:
+            query = select(Site.id).where(Site.active).order_by(Site.name)
+            if domain:
+                query = query.where(Site.domain == domain)
+            site_ids = list(await session.scalars(query))
+            for site_id in site_ids:
+                report = await build_report(session, site_id, year, month_number)
+                html = render_html(report)
+                if out_dir:
+                    path = Path(out_dir) / f"{report.domain}-{month}.html"
+                    path.write_text(html, encoding="utf-8")
+                    print(json.dumps({"event": "report_written", "file": str(path)}))
+                if notifier is not None:
+                    await notifier.send_report(report.subject, render_text(report), html)
+                    print(json.dumps({"event": "report_emailed", "site": report.domain}))
+                if not email and not out_dir:
+                    print(render_text(report))
+                    print()
+    finally:
+        await engine.dispose()
+
+
+def cmd_report(args: argparse.Namespace) -> None:
+    asyncio.run(_report(args.month, args.site, args.email, args.out_dir))
+
+
 def cmd_api(_: argparse.Namespace) -> None:
     from sitewatch.api.app import run
 
@@ -145,6 +220,17 @@ def main(argv: list[str] | None = None) -> None:
     p_run.add_argument("--kind", choices=sorted(REGISTRY), help="only this kind of check")
     p_run.add_argument("--site", help="only this domain")
     p_run.set_defaults(func=cmd_run_once)
+
+    p_rollup = sub.add_parser("rollup", help="summarise a day and purge old raw results")
+    p_rollup.add_argument("--day", help="YYYY-MM-DD (default: yesterday)")
+    p_rollup.set_defaults(func=cmd_rollup)
+
+    p_report = sub.add_parser("report", help="monthly report per site")
+    p_report.add_argument("--month", required=True, help="YYYY-MM")
+    p_report.add_argument("--site", help="one domain (default: every active site)")
+    p_report.add_argument("--email", action="store_true", help="email it to Owen through SES")
+    p_report.add_argument("--out-dir", help="write the HTML to this directory")
+    p_report.set_defaults(func=cmd_report)
 
     p_check = sub.add_parser("check", help="run checks once against a domain, no database")
     p_check.add_argument("domain")

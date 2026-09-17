@@ -1,0 +1,161 @@
+"""Check 7: broken links.
+
+Crawls the site's own pages (same host only, to a depth and page limit) and
+checks every link found. Internal links that return 4xx or 5xx are a failure:
+they are the client's own pages, and a 404 in a menu is the kind of thing a
+visitor hits and nobody notices for months.
+
+External links are checked too, but a broken one is a **warning**, not a
+failure: the other end is somebody else's server, it may block robots, and
+Sitewatch should not page Owen because a supplier's site is down.
+
+Politeness, because this crawls real client sites:
+- one host, the client's own, and never more than `max_pages` pages;
+- a small pause between requests;
+- HEAD first for external links, falling back to GET when HEAD is refused;
+- the honest Sitewatch user agent, as everywhere else.
+"""
+
+import re
+from collections import deque
+from html import unescape
+from typing import Any
+from urllib.parse import urldefrag, urljoin, urlparse
+
+import httpx
+
+from sitewatch.checks.base import Clients, Config, Result
+
+MAX_PAGES = 25
+MAX_DEPTH = 2
+PAUSE_SECONDS = 0.2
+LINK_TIMEOUT = 10.0
+
+HREF = re.compile(r"""<a\b[^>]*?\bhref\s*=\s*["']([^"'>]+)["']""", re.IGNORECASE)
+# Links that are not fetchable pages.
+SKIP_SCHEMES = ("mailto:", "tel:", "javascript:", "data:", "sms:", "#")
+
+
+def extract_links(html: str, base_url: str) -> list[str]:
+    """Absolute, fragment-free URLs from the anchors in a page."""
+    links = []
+    for raw in HREF.findall(html):
+        href = unescape(raw.strip())
+        if not href or href.lower().startswith(SKIP_SCHEMES):
+            continue
+        absolute, _ = urldefrag(urljoin(base_url, href))
+        if absolute.startswith(("http://", "https://")):
+            links.append(absolute)
+    return list(dict.fromkeys(links))  # de-duplicated, order kept
+
+
+def same_host(url: str, host: str) -> bool:
+    netloc = urlparse(url).netloc.lower()
+    host = host.lower()
+    return netloc in (host, f"www.{host}") or netloc.removeprefix("www.") == host.removeprefix(
+        "www."
+    )
+
+
+async def _status_of(client: httpx.AsyncClient, url: str) -> tuple[int | None, str | None]:
+    """(status, error). HEAD first, then GET, because some servers refuse HEAD."""
+    for method in ("HEAD", "GET"):
+        try:
+            response = await client.request(
+                method, url, follow_redirects=True, timeout=LINK_TIMEOUT
+            )
+        except httpx.HTTPError as exc:
+            return None, f"{type(exc).__name__}: {exc}"[:200]
+        if response.status_code not in (405, 501) or method == "GET":
+            return response.status_code, None
+    return None, "unreachable"
+
+
+async def run(config: Config, clients: Clients) -> Result | None:
+    start_url: str = config.get("url") or f"https://{config['domain']}/"
+    host = urlparse(start_url).netloc or config["domain"]
+    max_pages = int(config.get("max_pages", MAX_PAGES))
+    max_depth = int(config.get("max_depth", MAX_DEPTH))
+
+    first = await clients.pages.fetch(start_url)
+    if not first.ok or first.body is None:
+        return None  # the site being down is the uptime check's incident
+
+    queue: deque[tuple[str, int]] = deque([(start_url, 0)])
+    crawled: dict[str, str] = {start_url: first.body}
+    seen_pages = {start_url}
+    checked: dict[str, tuple[int | None, str | None]] = {}
+    internal_broken: list[dict[str, Any]] = []
+    external_broken: list[dict[str, Any]] = []
+
+    while queue and len(seen_pages) <= max_pages:
+        page_url, depth = queue.popleft()
+        body = crawled.get(page_url)
+        if body is None:
+            page = await clients.pages.fetch(page_url)
+            if not page.ok or page.body is None:
+                continue
+            body = page.body
+
+        for link in extract_links(body, page_url):
+            internal = same_host(link, host)
+            if link not in checked:
+                await clients.sleep(PAUSE_SECONDS)
+                checked[link] = await _status_of(clients.http, link)
+            status, error = checked[link]
+            broken = error is not None or (status is not None and status >= 400)
+            if broken:
+                record = {
+                    "url": link,
+                    "status": status,
+                    "error": error,
+                    "found_on": page_url,
+                }
+                (internal_broken if internal else external_broken).append(record)
+
+            if (
+                internal
+                and depth < max_depth
+                and link not in seen_pages
+                and len(seen_pages) < max_pages
+                and not broken
+            ):
+                seen_pages.add(link)
+                queue.append((link, depth + 1))
+
+    detail: dict[str, Any] = {
+        "start_url": start_url,
+        "pages_crawled": len(seen_pages),
+        "links_checked": len(checked),
+        "internal_broken": internal_broken,
+        "external_broken": external_broken,
+    }
+
+    if internal_broken:
+        first_few = ", ".join(
+            f"{b['url']} ({b['status'] or b['error']})" for b in internal_broken[:3]
+        )
+        extra = f" and {len(internal_broken) - 3} more" if len(internal_broken) > 3 else ""
+        return Result(
+            "fail",
+            f"{len(internal_broken)} broken internal link(s): {first_few}{extra}",
+            detail,
+        )
+    if external_broken:
+        first_few = ", ".join(
+            f"{b['url']} ({b['status'] or b['error']})" for b in external_broken[:3]
+        )
+        extra = f" and {len(external_broken) - 3} more" if len(external_broken) > 3 else ""
+        return Result(
+            "warn",
+            f"{len(external_broken)} broken link(s) to other sites: {first_few}{extra}",
+            detail,
+        )
+    return Result(
+        "ok",
+        f"{len(checked)} links checked across {len(seen_pages)} pages, none broken",
+        detail,
+    )
+
+
+__all__ = ["extract_links", "run", "same_host"]

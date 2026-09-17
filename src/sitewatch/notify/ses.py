@@ -43,16 +43,25 @@ class SesNotifier:
             config=BotoConfig(retries={"max_attempts": 3, "mode": "standard"}, read_timeout=10),
         )
 
-    def _send(self, subject: str, body: str) -> str:
+    def _send(self, subject: str, body: str, html: str | None = None) -> str:
+        content: dict[str, Any] = {"Text": {"Data": body, "Charset": "UTF-8"}}
+        if html is not None:
+            content["Html"] = {"Data": html, "Charset": "UTF-8"}
         response = self._client.send_email(
             Source=self.sender,
             Destination={"ToAddresses": [self.recipient]},
             Message={
                 "Subject": {"Data": subject, "Charset": "UTF-8"},
-                "Body": {"Text": {"Data": body, "Charset": "UTF-8"}},
+                "Body": content,
             },
         )
         message_id: str = response["MessageId"]
+        return message_id
+
+    async def send_report(self, subject: str, text: str, html: str) -> str:
+        """Send a monthly report: same one recipient, HTML with a text fallback."""
+        message_id = await asyncio.to_thread(self._send, subject, text, html)
+        log_event(log, "report_emailed", logging.INFO, subject=subject, message_id=message_id)
         return message_id
 
     async def send(self, msg: AlertMessage) -> None:

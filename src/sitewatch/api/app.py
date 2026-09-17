@@ -33,6 +33,7 @@ from sitewatch.config import Settings, get_settings
 from sitewatch.db.baselines import set_baseline
 from sitewatch.db.session import make_engine, make_sessionmaker
 from sitewatch.observability.logging import configure_logging
+from sitewatch.reports.monthly import build_report, render_html
 
 log = logging.getLogger("sitewatch.api")
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
@@ -146,6 +147,27 @@ async def dashboard_home(request: Request, session: Session) -> Any:
         "index.html",
         {"sites": sites, "incidents": open_incidents, "uptime": uptime, "version": __version__},
     )
+
+
+@dashboard.get("/reports/{site_id}/{month}", response_class=HTMLResponse, summary="Monthly report")
+async def dashboard_report(request: Request, site_id: int, month: str, session: Session) -> Any:
+    """The same HTML that gets emailed, at a URL, e.g. /reports/1/2026-09."""
+    try:
+        year_text, month_text = month.split("-")
+        year, month_number = int(year_text), int(month_text)
+        if not 1 <= month_number <= 12:
+            raise ValueError
+    except ValueError:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY, detail="month must look like 2026-09"
+        ) from None
+    try:
+        report = await build_report(session, site_id, year, month_number)
+    except LookupError:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, detail=f"no site with id {site_id}"
+        ) from None
+    return HTMLResponse(render_html(report))
 
 
 @dashboard.get("/sites/{site_id}/view", response_class=HTMLResponse, summary="One site")

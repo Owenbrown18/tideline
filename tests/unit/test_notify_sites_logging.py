@@ -131,6 +131,8 @@ def test_default_checks_for_a_site():
         ("tls", "tls:example.ca"),
         ("domain", "domain:example.ca"),
         ("dns", "dns:example.ca"),
+        ("links", "links:https://example.ca/"),
+        ("form", "form:example.ca"),
         ("email_auth", "email_auth:example.ca"),
     ]
     assert {s.kind: s.interval_seconds for s in specs} == DEFAULT_INTERVALS

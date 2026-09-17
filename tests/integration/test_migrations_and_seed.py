@@ -28,15 +28,15 @@ async def count(session, model, *where):
 async def test_seed_creates_sites_and_checks(sessionmaker):
     async with sessionmaker() as session, session.begin():
         report = await seed(session, sites_file(BAKERY, BUILDER))
-    # Six checks per site: uptime, content, tls, domain, dns, email_auth.
-    assert (report.sites_added, report.checks_added) == (2, 12)
+    # Eight checks per site: uptime, content, tls, domain, dns, email_auth, links, form.
+    assert (report.sites_added, report.checks_added) == (2, 16)
 
     async with sessionmaker() as session:
         site = await session.scalar(select(Site).where(Site.domain == "davesbakery.ca"))
         assert site.urls == ["https://davesbakery.ca/"]
         assert site.active
         kinds = set(await session.scalars(select(Check.kind).where(Check.site_id == site.id)))
-        assert kinds == {"uptime", "content", "tls", "domain", "dns", "email_auth"}
+        assert kinds == {"uptime", "content", "tls", "domain", "dns", "email_auth", "links", "form"}
 
 
 async def test_seed_is_idempotent(sessionmaker):
@@ -48,7 +48,7 @@ async def test_seed_is_idempotent(sessionmaker):
     assert report.checks_updated == 0
     async with sessionmaker() as session:
         assert await count(session, Site) == 2
-        assert await count(session, Check) == 12
+        assert await count(session, Check) == 16
 
 
 async def test_seed_updates_disables_and_deactivates(sessionmaker):
