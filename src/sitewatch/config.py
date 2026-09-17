@@ -30,6 +30,15 @@ class Settings(BaseSettings):
     # Hours between reminder alerts for an incident that stays open.
     reminder_hours: int = 24
 
+    # API and dashboard. Both credentials are required for the API to start:
+    # in production the deploy script reads them from SSM Parameter Store.
+    api_token: str = ""
+    dashboard_user: str = "owen"
+    dashboard_password: str = ""
+    # Binds inside the container only: Caddy is the only public listener.
+    api_host: str = "0.0.0.0"
+    api_port: int = 8000
+
     # Where RDAP lookups go. rdap.org redirects to the right registry (CIRA for .ca).
     rdap_base_url: str = "https://rdap.org/domain/"
 

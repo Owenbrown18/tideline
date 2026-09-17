@@ -3,6 +3,7 @@
 sitewatch migrate              apply database migrations (alembic upgrade head)
 sitewatch seed [sites.yaml]    load the site list into the database
 sitewatch worker               run the scheduler until stopped
+sitewatch api                  run the API and dashboard (uvicorn)
 sitewatch check <domain> ...   run checks 1-4 once and print the results (no database)
 """
 
@@ -61,6 +62,12 @@ def cmd_worker(_: argparse.Namespace) -> None:
     asyncio.run(Worker(get_settings()).run())
 
 
+def cmd_api(_: argparse.Namespace) -> None:
+    from sitewatch.api.app import run
+
+    run()
+
+
 async def _check(args: argparse.Namespace) -> int:
     settings = get_settings()
     async with httpx.AsyncClient(headers={"User-Agent": settings.user_agent}) as http:
@@ -100,6 +107,7 @@ def main(argv: list[str] | None = None) -> None:
     p_seed.set_defaults(func=cmd_seed)
 
     sub.add_parser("worker", help="run the check scheduler").set_defaults(func=cmd_worker)
+    sub.add_parser("api", help="run the API and dashboard").set_defaults(func=cmd_api)
 
     p_check = sub.add_parser("check", help="run checks once against a domain, no database")
     p_check.add_argument("domain")

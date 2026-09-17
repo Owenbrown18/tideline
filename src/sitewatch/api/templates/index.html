@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% macro status_pill(status) %}
+  <span class="pill {{ status or 'none' }}">{{ status or 'no data' }}</span>
+{% endmacro %}
+{% block body %}
+  <h1>Sitewatch</h1>
+  <p class="sub">
+    {{ sites | selectattr("active") | list | length }} sites watched ·
+    {{ incidents | length }} open incident{{ '' if incidents | length == 1 else 's' }}
+  </p>
+
+  {% if incidents %}
+    <h2>Open incidents</h2>
+    <table>
+      <tr><th>Site</th><th>Check</th><th>Severity</th><th>Opened</th><th>What happened</th></tr>
+      {% for i in incidents %}
+        <tr>
+          <td><a href="/sites/{{ i.site_id }}/view">{{ i.site_name }}</a></td>
+          <td>{{ i.check_kind }}</td>
+          <td><span class="pill {{ 'fail' if i.severity == 'critical' else 'warn' }}">{{ i.severity }}</span></td>
+          <td class="muted">{{ i.opened_at.strftime('%Y-%m-%d %H:%M') }} UTC</td>
+          <td class="wrap">{{ i.summary }}</td>
+        </tr>
+      {% endfor %}
+    </table>
+  {% endif %}
+
+  <h2>Sites</h2>
+  <table>
+    <tr><th>Site</th><th>Status</th><th>Uptime 30 d</th><th>Response p50 / p95</th><th>Checks</th></tr>
+    {% for site in sites %}
+      {% set u = uptime[site.id] %}
+      <tr>
+        <td>
+          <a href="/sites/{{ site.id }}/view">{{ site.name }}</a>
+          <div class="muted">{{ site.domain }}{% if not site.active %} (inactive){% endif %}</div>
+        </td>
+        <td>{{ status_pill(site.status) }}</td>
+        <td>{{ '%.2f%%' % u.uptime_percent if u.uptime_percent is not none else '-' }}</td>
+        <td class="muted">
+          {{ u.p50_ms ~ ' / ' ~ u.p95_ms ~ ' ms' if u.p50_ms is not none else '-' }}
+        </td>
+        <td class="muted">{{ site.checks | selectattr("enabled") | list | length }}</td>
+      </tr>
+    {% endfor %}
+  </table>
+{% endblock %}
