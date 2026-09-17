@@ -1,0 +1,100 @@
+name: Deploy
+
+# On every push to main: build the arm64 image, push it to ECR, upload the
+# deploy files, then ask SSM to run the deploy on the instance. No SSH, and no
+# AWS keys: the job assumes an IAM role through GitHub's OIDC token.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false # never interrupt a deploy half way
+
+permissions:
+  contents: read
+  id-token: write # required to request the OIDC token
+
+env:
+  AWS_REGION: ca-central-1
+  ECR_REPOSITORY: sitewatch
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Assume the deploy role (OIDC)
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: aws-actions/amazon-ecr-login@v2
+        id: ecr
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build and push the arm64 image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/arm64 # the instance is Graviton
+          push: true
+          tags: ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Upload the deploy files
+        run: |
+          aws s3 cp deploy/deploy.sh          "s3://${{ vars.AWS_BUCKET }}/deploy/deploy.sh"
+          aws s3 cp deploy/compose.prod.yaml  "s3://${{ vars.AWS_BUCKET }}/deploy/compose.prod.yaml"
+          aws s3 cp deploy/Caddyfile          "s3://${{ vars.AWS_BUCKET }}/deploy/Caddyfile"
+
+      - name: Deploy through SSM
+        id: ssm
+        run: |
+          command_id=$(aws ssm send-command \
+            --document-name sitewatch-deploy \
+            --instance-ids "${{ vars.AWS_INSTANCE_ID }}" \
+            --parameters imageTag=${{ github.sha }} \
+            --query Command.CommandId --output text)
+          echo "command_id=$command_id" >> "$GITHUB_OUTPUT"
+          echo "Deploy command $command_id sent"
+
+          for _ in $(seq 1 60); do
+            status=$(aws ssm get-command-invocation \
+              --command-id "$command_id" --instance-id "${{ vars.AWS_INSTANCE_ID }}" \
+              --query Status --output text 2>/dev/null || echo Pending)
+            case "$status" in
+              Success) echo "deploy succeeded"; break ;;
+              Failed|Cancelled|TimedOut) echo "deploy $status"; break ;;
+              *) sleep 10 ;;
+            esac
+          done
+          echo "final_status=$status" >> "$GITHUB_OUTPUT"
+
+      - name: Show the deploy log
+        if: always()
+        run: |
+          aws ssm get-command-invocation \
+            --command-id "${{ steps.ssm.outputs.command_id }}" \
+            --instance-id "${{ vars.AWS_INSTANCE_ID }}" \
+            --query '[StandardOutputContent,StandardErrorContent]' --output text
+
+      - name: Fail the job if the deploy failed
+        if: steps.ssm.outputs.final_status != 'Success'
+        run: exit 1
+
+      - name: Check the site answers over HTTPS
+        run: |
+          for _ in $(seq 1 10); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' https://${{ vars.SITEWATCH_DOMAIN }}/healthz || true)
+            [ "$code" = 200 ] && echo "healthz 200 over HTTPS" && exit 0
+            sleep 10
+          done
+          echo "healthz did not return 200 over HTTPS (last code: $code)"
+          exit 1

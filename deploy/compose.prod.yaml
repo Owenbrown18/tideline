@@ -1,0 +1,65 @@
+# Production stack on the EC2 instance. Started by deploy.sh, which writes
+# /opt/sitewatch/.env from SSM Parameter Store first.
+#
+# Differences from the local compose.yaml:
+#   - images come from ECR by tag (the git SHA), never built here
+#   - caddy terminates HTTPS and is the only thing listening publicly
+#   - postgres and the app are on an internal network with no published ports
+#   - restart: always, so a reboot brings everything back
+
+name: sitewatch
+
+x-app: &app
+  image: ${SITEWATCH_IMAGE}
+  env_file: [/opt/sitewatch/.env]
+  restart: always
+  depends_on:
+    postgres:
+      condition: service_healthy
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: sitewatch
+      POSTGRES_PASSWORD: ${SITEWATCH_DB_PASSWORD}
+      POSTGRES_DB: sitewatch
+    volumes:
+      - /opt/sitewatch/pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sitewatch -d sitewatch"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    restart: always
+
+  api:
+    <<: *app
+    command: ["sitewatch", "api"]
+    expose: ["8000"]
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/healthz').status == 200 else 1)\""]
+      interval: 15s
+      timeout: 5s
+      retries: 4
+      start_period: 15s
+
+  worker:
+    <<: *app
+    command: ["sitewatch", "worker"]
+
+  caddy:
+    image: caddy:2-alpine
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - /opt/sitewatch/Caddyfile:/etc/caddy/Caddyfile:ro
+      - /opt/sitewatch/caddy_data:/data     # certificates survive restarts
+      - /opt/sitewatch/caddy_config:/config
+    environment:
+      SITEWATCH_DOMAIN: ${SITEWATCH_DOMAIN}
+      SITEWATCH_ALERT_EMAIL: ${SITEWATCH_ALERT_EMAIL}
+    depends_on: [api]

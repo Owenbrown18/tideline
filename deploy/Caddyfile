@@ -1,0 +1,26 @@
+# Caddy gets and renews a Let's Encrypt certificate for the dashboard
+# automatically, and is the only process listening on the public internet.
+
+{
+	email {$SITEWATCH_ALERT_EMAIL}
+}
+
+{$SITEWATCH_DOMAIN} {
+	encode zstd gzip
+
+	# Sitewatch is Owen's tool, not a public page.
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		-Server
+	}
+
+	reverse_proxy api:8000
+
+	log {
+		output stdout
+		format json
+	}
+}
