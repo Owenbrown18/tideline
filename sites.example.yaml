@@ -1,0 +1,32 @@
+# Copy to sites.yaml (git-ignored) and list the real sites there.
+# Load it with:  uv run sitewatch seed sites.yaml   (or `docker compose up`, which seeds on start)
+#
+# Seeding is idempotent: run it again after any edit. Sites removed from the file
+# are marked inactive (history kept), not deleted.
+
+# Optional: override README section 2 intervals (seconds) for every site.
+defaults:
+  intervals:
+    uptime: 300      # 5 min
+    content: 300     # 5 min, shares the uptime request
+    tls: 21600       # 6 h
+    domain: 86400    # daily
+
+sites:
+  - name: Example Bakery
+    domain: example.ca                    # bare hostname: used for TLS and RDAP
+    expected_text: "Example Bakery"       # must appear on every page in `urls`
+    # urls: optional, defaults to https://<domain>/
+    urls:
+      - https://example.ca/
+      - https://example.ca/contact
+
+  - name: Example Builder
+    domain: example.com
+    expected_text: "Example Builder Co"
+    # Everything below is optional.
+    intervals:
+      uptime: 120                         # this site only
+    checks:
+      domain: false                       # switch a check kind off for this site
+    spam_ignore: ["payday loans"]         # a spam marker that is legitimate on this site
