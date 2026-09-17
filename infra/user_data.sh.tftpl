@@ -43,6 +43,7 @@ ENV
 
 # First deploy: fetch whatever CI has already uploaded. If nothing is there yet
 # (the very first apply), this exits quietly and the next deploy does the work.
+# The CloudWatch agent is installed above; deploy.sh gives it its configuration.
 if aws s3 cp "s3://${bucket}/deploy/deploy.sh" /opt/sitewatch/deploy.sh --region ${region}; then
   chmod +x /opt/sitewatch/deploy.sh
   /opt/sitewatch/deploy.sh || echo "first deploy failed; CI will deploy on the next push"

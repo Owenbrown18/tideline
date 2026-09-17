@@ -29,6 +29,9 @@ param() {
 log fetch_files
 aws s3 cp "s3://$SITEWATCH_BUCKET/deploy/compose.prod.yaml" /opt/sitewatch/compose.prod.yaml --region "$AWS_REGION"
 aws s3 cp "s3://$SITEWATCH_BUCKET/deploy/Caddyfile" /opt/sitewatch/Caddyfile --region "$AWS_REGION"
+aws s3 cp "s3://$SITEWATCH_BUCKET/deploy/backup.sh" /opt/sitewatch/backup.sh --region "$AWS_REGION"
+aws s3 cp "s3://$SITEWATCH_BUCKET/deploy/cloudwatch-agent.json" /opt/sitewatch/cloudwatch-agent.json --region "$AWS_REGION"
+chmod +x /opt/sitewatch/backup.sh
 
 log write_env
 # Secrets come from SSM Parameter Store at deploy time: they are never in the
@@ -41,6 +44,10 @@ SITEWATCH_API_TOKEN=$(param /sitewatch/api_token)
 SITEWATCH_DASHBOARD_USER=$(param /sitewatch/dashboard_user)
 SITEWATCH_DASHBOARD_PASSWORD=$(param /sitewatch/dashboard_password)
 SITEWATCH_LOG_LEVEL=INFO
+SITEWATCH_NOTIFY_CHANNEL=ses
+SITEWATCH_ALERT_EMAIL=${SITEWATCH_ALERT_EMAIL}
+SITEWATCH_ALERT_SENDER=sitewatch@${SITEWATCH_DOMAIN#status.}
+SITEWATCH_AWS_REGION=${AWS_REGION}
 ENVFILE
 
 cat > /opt/sitewatch/compose.env <<COMPOSEENV
@@ -77,6 +84,41 @@ compose run --rm --no-deps -v /opt/sitewatch/sites.yaml:/config/sites.yaml:ro ap
 
 log restart
 compose up -d --remove-orphans
+
+log cloudwatch_agent
+# Host memory and disk metrics. The agent is installed by user-data; this keeps
+# its configuration in sync on every deploy.
+if [ -x /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl ]; then
+  /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
+    -a fetch-config -m ec2 -s -c file:/opt/sitewatch/cloudwatch-agent.json >/dev/null
+fi
+
+log backup_timer
+# Nightly pg_dump to S3 at 03:20 UTC, with a random delay so it never lines up
+# exactly with anything else, and Persistent so a reboot does not skip a night.
+cat > /etc/systemd/system/sitewatch-backup.service <<'UNIT'
+[Unit]
+Description=Sitewatch nightly database backup to S3
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/sitewatch/backup.sh
+UNIT
+cat > /etc/systemd/system/sitewatch-backup.timer <<'UNIT'
+[Unit]
+Description=Run the Sitewatch backup nightly
+
+[Timer]
+OnCalendar=*-*-* 03:20:00 UTC
+RandomizedDelaySec=600
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+UNIT
+systemctl daemon-reload
+systemctl enable --now sitewatch-backup.timer >/dev/null
 
 log health
 # Ask the api container itself, not Caddy. Going through Caddy was a trap: it

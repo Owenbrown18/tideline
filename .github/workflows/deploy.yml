@@ -53,6 +53,8 @@ jobs:
           aws s3 cp deploy/deploy.sh          "s3://${{ vars.AWS_BUCKET }}/deploy/deploy.sh"
           aws s3 cp deploy/compose.prod.yaml  "s3://${{ vars.AWS_BUCKET }}/deploy/compose.prod.yaml"
           aws s3 cp deploy/Caddyfile          "s3://${{ vars.AWS_BUCKET }}/deploy/Caddyfile"
+          aws s3 cp deploy/backup.sh          "s3://${{ vars.AWS_BUCKET }}/deploy/backup.sh"
+          aws s3 cp deploy/cloudwatch-agent.json "s3://${{ vars.AWS_BUCKET }}/deploy/cloudwatch-agent.json"
 
       - name: Deploy through SSM
         id: ssm
