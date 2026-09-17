@@ -4,7 +4,7 @@
 
 It is a Python backend running in Docker on AWS, deployed by GitHub Actions, with tests, structured logs, metrics and alarms. The name is a working name.
 
-> **Status (2026-09-17):** M1 done and verified in Docker: `docker compose up` ran migrate, seed and the worker (non-root, arm64 image); stopping the demo site opened an incident 36 s later and restarting it resolved it 9 s later, with both alerts and 78 results in Postgres; 118 tests pass against Postgres 16 in Docker. M0: tools installed (OrbStack, uv, AWS CLI, Terraform), AWS account created, CLI sign-in and account hardening in progress. Repo will be public. This file is the spec: build against it, and update it when a decision changes.
+> **Status (2026-09-17):** **M0 and M1 done.** M0: AWS account 053578820490 in ca-central-1, root MFA on, USD 25/month budget with email alerts at 50/80/forecast-100%, AWS Organizations plus IAM Identity Center with an `Administrators` group and an admin user (no access keys on the laptop; `aws sso login --profile sitewatch`), tools installed (OrbStack, uv, AWS CLI, Terraform), public repo at github.com/Owenbrown18/sitewatch. M1: verified with `docker compose up` plus the incident demo, 118 tests green. Next: M2 (API, dashboard, CI). This file is the spec: build against it, and update it when a decision changes.
 >
 > **Run it locally:** [docs/local-dev.md](docs/local-dev.md). **How the code fits together:** [docs/architecture.md](docs/architecture.md).
 
@@ -224,11 +224,11 @@ The real site list lives in the database (seeded from a git-ignored `sites.yaml`
 
 Each milestone ends with something working and verified, not "code written". Work in order.
 
-**M0: Accounts and tools (Owen, about 30 min)**
+**M0: Accounts and tools (done 2026-09-17)**
 - Create the AWS account. Turn on MFA for the root user, then stop using root: create an IAM Identity Center admin user.
 - Create a **budget alarm at USD 25/month** before anything else.
 - Install: Docker (OrbStack or Docker Desktop), `uv`, `terraform`, `awscli`. Create the GitHub repo.
-- Done when: `aws sts get-caller-identity` works with the admin user, and `docker run hello-world` works.
+- Done when: `aws sts get-caller-identity` works with the admin user, and `docker run hello-world` works. **Done 2026-09-17.** Account 053578820490; sign in with `aws sso login --profile sitewatch`; portal https://d-9d6748d0db.awsapps.com/start.
 
 **M1: The core, locally** (done 2026-09-17)
 - Project skeleton, config, DB models, first Alembic migration.
