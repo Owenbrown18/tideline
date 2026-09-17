@@ -4,7 +4,7 @@
 
 It is a Python backend running in Docker on AWS, deployed by GitHub Actions, with tests, structured logs, metrics and alarms. The name is a working name.
 
-> **Status (2026-09-17):** **M0 to M3 done. Live at https://status.obwebdesign.ca/** (Let's Encrypt certificate through Caddy, basic auth, all 11 sites reporting ok). Account 053578820490, `t4g.small` Graviton in ca-central-1 running caddy, api, worker and postgres; image in ECR; secrets and the site list in SSM; deploys through SSM Run Command with verified automatic rollback. About USD 20/month against a USD 25 budget alarm. 136 tests. One thing outstanding: GitHub Actions is disabled because the GitHub account is flagged (appeal filed), so deploys run from the laptop with the commands in docs/runbook.md until that clears.
+> **Status (2026-09-17):** **M0 to M4 done. Live at https://status.obwebdesign.ca/.** 11 sites, 66 checks, six check kinds, alerts by SES, JSON logs and EMF metrics in CloudWatch, five alarms through SNS, nightly backups to S3 with a restore tested end to end, DNS baselines captured and accepted through the API. 178 tests. Outstanding: GitHub Actions is disabled because the GitHub account is flagged (appeal filed), so deploys run from the laptop with the commands in docs/runbook.md; and the SNS email subscription needs one confirmation click before alarm emails arrive.
 >
 > **Run it locally:** [docs/local-dev.md](docs/local-dev.md). **How the code fits together:** [docs/architecture.md](docs/architecture.md).
 
@@ -50,8 +50,8 @@ This project turns the whole cluster into things Owen has actually built and run
 | 2 | **Content sanity** | Page body must contain an expected string (the business name) and must not contain spam markers. Markers are phrases ("online casino", "slot gacor", "canadian pharmacy", "viagra"), not bare words, so a musician's casino gig is not flagged; a site can ignore one with `spam_ignore` | every 5 min, same request as #1 | expected text missing, or a spam marker appears | M1 |
 | 3 | **TLS certificate** | Open a TLS connection, read the certificate's expiry and hostname match | every 6 h | under 21 days (warning), under 7 days (critical), or invalid (critical). A connection that fails before the handshake is left to the uptime check. | M1 |
 | 4 | **Domain registration** | RDAP lookup for the expiry date (reuse the logic in `~/OBDesign/Systems/leadgen/domain_status.py`) | daily | under 30 days to expiry (warning), under 7 days, expired or a hold/redemption status (critical). RDAP rate limits and outages record nothing. | M1 |
-| 5 | **DNS drift** | Resolve A, AAAA, CNAME, MX, NS and TXT for the apex and `www`; compare with the stored baseline | hourly | any record differs from the baseline. Owen accepts a change to make it the new baseline. | M4 |
-| 6 | **Email authentication** | Exactly one SPF record, under 10 DNS lookups, DMARC record present | daily | SPF missing, duplicated or over the lookup limit, or DMARC missing | M4 |
+| 5 | **DNS drift** | Resolve A, AAAA, CNAME, MX, NS and TXT for the apex and `www`; compare with the stored baseline. Addresses behind a CNAME are not compared, because a CDN rotates them. | hourly | any record differs from the baseline. Owen accepts a change to make it the new baseline (`POST /sites/{id}/dns-baseline/accept`). | M4 |
+| 6 | **Email authentication** | Exactly one SPF record, under 10 DNS lookups, DMARC record present | daily | **fail** when mail is actively failing authentication (two SPF records, or over the lookup limit); **warn** for a gap that breaks nothing today (no SPF at all, no DMARC) | M4 |
 | 7 | **Broken links** | Crawl the site's internal links (same host, depth limit, polite rate), `HEAD` external links | daily | any internal link returns 4xx/5xx | M5 |
 | 8 | **Contact form health** | Load the contact page and confirm the form and its action endpoint (Formspree etc.) are present and reachable. **Never submit a real form**: that would email the client. | daily | form missing or endpoint unreachable | M5 |
 
@@ -149,7 +149,7 @@ Everything except `/healthz` requires auth (a bearer token for the API, basic au
 | Deploy | SSM Run Command | No SSH port open. Deploy script: pull, `alembic upgrade head`, restart, poll `/healthz`, roll back to the previous image tag on failure. |
 | TLS / proxy | Caddy | Automatic Let's Encrypt certificates for `status.obwebdesign.ca`. |
 | Logs | JSON to stdout → Docker `awslogs` driver → CloudWatch Logs | Searchable, structured, one line per check result. |
-| Metrics | CloudWatch Embedded Metric Format from the app; CloudWatch agent for host CPU, memory, disk | `checks_run`, `check_failures`, `check_duration_ms`, `open_incidents`, `worker_heartbeat`. |
+| Metrics | CloudWatch Embedded Metric Format from the app; CloudWatch agent for host memory and disk | `checks_run`, `check_failures`, `check_duration_ms`, `open_incidents`, `worker_heartbeat`, `backup_success`. No per-site dimensions: CloudWatch charges per metric per month, and per-site detail is free in the logs. |
 | Alarms | CloudWatch Alarms → SNS email | Watches the watcher (below). |
 | Email | Amazon SES, domain identity on obwebdesign.ca with DKIM | Alerts and monthly reports to Owen. SES sandbox is fine because the only recipient is Owen. |
 | Secrets | SSM Parameter Store (SecureString) | DB password, API token, dashboard password, and `sites.yaml` itself. Nothing secret in the repo, the image, or Terraform state. |
@@ -162,7 +162,7 @@ Everything except `/healthz` requires auth (a bearer token for the API, basic au
 
 ### Watching the watcher
 If the worker dies, every site looks fine and nobody is told. So:
-- The worker publishes `worker_heartbeat` every cycle. A CloudWatch alarm fires if it is **missing** for 15 minutes (missing data counts as breaching) and emails Owen through SNS. That path does not depend on the instance or on SES.
+- The worker publishes `worker_heartbeat` every cycle. A CloudWatch alarm fires if it is **missing** for 10 one-minute periods (missing data counts as breaching) and emails Owen through SNS. That path does not depend on the instance or on SES. Measured 2026-09-17: with three 5-minute periods, detection took 25 minutes, because CloudWatch waits past the window for late data; ten 1-minute periods was the fix.
 - Alarms also fire on disk above 80%, sustained high memory, and a failed nightly backup.
 
 ### Security
@@ -250,12 +250,12 @@ Each milestone ends with something working and verified, not "code written". Wor
 - Caddy serving `status.obwebdesign.ca` over HTTPS (one DNS record at the obwebdesign.ca DNS host). **Done 2026-09-17**: A record at Hostinger to 15.175.12.202, certificate from Let's Encrypt over the http-01 challenge.
 - Done when: a push to `main` goes live without touching the server, and a deliberately broken build rolls back by itself. **Rollback verified 2026-09-17** (broken image, health check failed, previous tag restored automatically). The push-to-deploy half needs GitHub Actions enabled on the account.
 
-**M4: Alerts and observability**
+**M4: Alerts and observability** (done 2026-09-17)
 - SES domain identity and DKIM, alert emails (open, reminder, resolved).
 - JSON logs to CloudWatch; EMF metrics; CloudWatch agent; heartbeat, disk and backup alarms; a CloudWatch dashboard.
 - Checks 5–6 (DNS drift, SPF/DMARC). Baselines captured on first run.
 - Nightly `pg_dump` to S3, and **one real restore tested** and written into the runbook.
-- Done when: stopping the worker on the server produces the heartbeat alarm email within 15 minutes, and a real restore has been done once.
+- Done when: stopping the worker on the server produces the heartbeat alarm email within 15 minutes, and a real restore has been done once. **Verified 2026-09-17**: the worker was stopped on the live instance and the alarm fired and invoked SNS; a backup was restored into a scratch database (11 sites, 66 checks, 169 results) and checked. Alarm emails need the SNS subscription confirmed once.
 
 **M5: Reports and the rest of the checks**
 - Daily rollups; uptime % and p50/p95 per site; 30-day views on the dashboard.

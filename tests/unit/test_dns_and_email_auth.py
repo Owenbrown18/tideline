@@ -202,14 +202,15 @@ async def test_valid_spf_and_dmarc_is_ok(make_clients):
     assert result.detail["spf_lookups"] == 1
 
 
-async def test_missing_spf_fails(make_clients):
+async def test_missing_spf_is_a_warning_not_a_failure(make_clients):
+    """A gap that leaves the domain spoofable, but breaks no mail today."""
     clients = clients_for(make_clients, [], ["v=DMARC1; p=none"])
     result = await email_auth.run({"domain": "example.ca"}, clients)
-    assert result.status == "fail"
+    assert result.status == "warn"
     assert "no SPF record" in result.summary
 
 
-async def test_two_spf_records_fail(make_clients):
+async def test_two_spf_records_fail_because_mail_is_breaking_now(make_clients):
     clients = clients_for(
         make_clients,
         ["v=spf1 include:_spf.google.com ~all", "v=spf1 include:sendgrid.net ~all"],
@@ -220,10 +221,21 @@ async def test_two_spf_records_fail(make_clients):
     assert "2 SPF records" in result.summary
 
 
-async def test_missing_dmarc_fails(make_clients):
+async def test_missing_dmarc_is_a_warning(make_clients):
     clients = clients_for(make_clients, ["v=spf1 -all"], [])
     result = await email_auth.run({"domain": "example.ca"}, clients)
+    assert result.status == "warn"
+    assert "no DMARC record" in result.summary
+
+
+async def test_breaking_and_gap_problems_together_are_a_failure(make_clients):
+    """Two SPF records AND no DMARC: the worse of the two decides."""
+    clients = clients_for(
+        make_clients, ["v=spf1 include:a.test ~all", "v=spf1 include:b.test ~all"], []
+    )
+    result = await email_auth.run({"domain": "example.ca"}, clients)
     assert result.status == "fail"
+    assert "2 SPF records" in result.summary
     assert "no DMARC record" in result.summary
 
 
@@ -239,7 +251,7 @@ async def test_nxdomain_on_dmarc_subdomain_means_no_dmarc(make_clients):
 
     clients = make_clients(resolver=DmarcMissing({("example.ca", "TXT"): ["v=spf1 -all"]}))
     result = await email_auth.run({"domain": "example.ca"}, clients)
-    assert result.status == "fail"
+    assert result.status == "warn"
     assert result.summary == "example.ca: no DMARC record"
     assert result.detail["spf_records"] == ["v=spf1 -all"]
 

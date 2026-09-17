@@ -22,13 +22,20 @@ resource "aws_sns_topic_subscription" "owen" {
 
 resource "aws_cloudwatch_metric_alarm" "worker_heartbeat" {
   alarm_name        = "sitewatch-worker-heartbeat-missing"
-  alarm_description = "The Sitewatch worker has not published a heartbeat for 15 minutes: checks are not running."
+  alarm_description = "The Sitewatch worker has not published a heartbeat for 10 minutes: checks are not running."
 
+  # The worker publishes a heartbeat every 60 s, so this watches ten one-minute
+  # periods rather than three five-minute ones. Measured on 2026-09-17: with
+  # 3 x 5 minutes, a stopped worker took 25 minutes to alarm, because CloudWatch
+  # waits past the evaluation window for late data before deciding that missing
+  # data is really missing. Ten 1-minute periods gives the same tolerance for a
+  # single late heartbeat with a much shorter time to detection.
   namespace           = "Sitewatch"
   metric_name         = "worker_heartbeat"
   statistic           = "Sum"
-  period              = 300
-  evaluation_periods  = 3 # 3 x 5 minutes
+  period              = 60
+  evaluation_periods  = 10
+  datapoints_to_alarm = 10
   threshold           = 1
   comparison_operator = "LessThanThreshold"
   treat_missing_data  = "breaching" # a dead worker publishes nothing at all

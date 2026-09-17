@@ -106,22 +106,35 @@ async def run(config: Config, clients: Clients) -> Result | None:
         "dmarc_policy": policy_match.group(1).lower() if policy_match else None,
     }
 
-    problems: list[str] = []
+    # Two levels, because these problems are not equally urgent (Owen's call,
+    # 2026-09-17, after eight client domains turned out to be missing records
+    # without a single complaint from anyone):
+    #
+    #   fail  mail is actively failing authentication right now: two SPF records
+    #         or too many lookups both make receivers treat every message as
+    #         unauthenticated.
+    #   warn  a gap that leaves the domain spoofable but breaks nothing today:
+    #         no SPF at all, or no DMARC.
+    breaking: list[str] = []
+    gaps: list[str] = []
+
     if not spf:
-        problems.append("no SPF record")
+        gaps.append("no SPF record, so anyone can send mail as this domain")
     elif len(spf) > 1:
-        problems.append(f"{len(spf)} SPF records (there must be exactly one)")
+        breaking.append(f"{len(spf)} SPF records (there must be exactly one)")
     else:
         lookups = await total_spf_lookups(clients.resolver, spf[0])
         detail["spf_lookups"] = lookups
         if lookups > MAX_SPF_LOOKUPS:
-            problems.append(f"SPF needs {lookups} DNS lookups, over the limit of {MAX_SPF_LOOKUPS}")
+            breaking.append(f"SPF needs {lookups} DNS lookups, over the limit of {MAX_SPF_LOOKUPS}")
 
     if dmarc is None:
-        problems.append("no DMARC record")
+        gaps.append("no DMARC record")
 
-    if problems:
-        return Result("fail", f"{domain}: " + "; ".join(problems), detail)
+    if breaking:
+        return Result("fail", f"{domain}: " + "; ".join(breaking + gaps), detail)
+    if gaps:
+        return Result("warn", f"{domain}: " + "; ".join(gaps), detail)
 
     summary = f"SPF valid ({detail.get('spf_lookups', 0)} lookups), DMARC present"
     if detail["dmarc_policy"] == "none":
