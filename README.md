@@ -4,7 +4,9 @@
 
 It is a Python backend running in Docker on AWS, deployed by GitHub Actions, with tests, structured logs, metrics and alarms. The name is a working name.
 
-> **Status:** brief written 2026-09-17. Nothing built yet. This file is the spec: build against it, and update it when a decision changes.
+> **Status (2026-09-17):** M1 code complete and verified outside Docker (118 tests; a live worker run against all 11 sites plus a killed-and-restarted fake site opened and resolved an incident). M1 is signed off once `docker compose up` is run after M0 installs Docker. M0 (AWS account, tools) is with Owen. This file is the spec: build against it, and update it when a decision changes.
+>
+> **Run it locally:** [docs/local-dev.md](docs/local-dev.md). **How the code fits together:** [docs/architecture.md](docs/architecture.md).
 
 ---
 
@@ -45,9 +47,9 @@ This project turns the whole cluster into things Owen has actually built and run
 | # | Check | How | How often | Opens an incident when | Milestone |
 |---|---|---|---|---|---|
 | 1 | **Uptime and response time** | `GET` the homepage (and any key pages listed for the site); record status code, total time, and TTFB | every 5 min | 2 failures in a row (non-2xx/3xx, timeout over 10 s, or connection error). One immediate retry after 30 s before a failure counts. | M1 |
-| 2 | **Content sanity** | Page body must contain an expected string (the business name) and must not contain spam markers (casino, viagra, pharma link patterns) | every 5 min, same request as #1 | expected text missing, or a spam marker appears | M1 |
-| 3 | **TLS certificate** | Open a TLS connection, read the certificate's expiry and hostname match | every 6 h | under 21 days (warning), under 7 days (critical), or invalid | M1 |
-| 4 | **Domain registration** | RDAP lookup for the expiry date (reuse the logic in `~/OBDesign/Systems/leadgen/domain_status.py`) | daily | under 30 days to expiry, or RDAP shows a hold status | M1 |
+| 2 | **Content sanity** | Page body must contain an expected string (the business name) and must not contain spam markers. Markers are phrases ("online casino", "slot gacor", "canadian pharmacy", "viagra"), not bare words, so a musician's casino gig is not flagged; a site can ignore one with `spam_ignore` | every 5 min, same request as #1 | expected text missing, or a spam marker appears | M1 |
+| 3 | **TLS certificate** | Open a TLS connection, read the certificate's expiry and hostname match | every 6 h | under 21 days (warning), under 7 days (critical), or invalid (critical). A connection that fails before the handshake is left to the uptime check. | M1 |
+| 4 | **Domain registration** | RDAP lookup for the expiry date (reuse the logic in `~/OBDesign/Systems/leadgen/domain_status.py`) | daily | under 30 days to expiry (warning), under 7 days, expired or a hold/redemption status (critical). RDAP rate limits and outages record nothing. | M1 |
 | 5 | **DNS drift** | Resolve A, AAAA, CNAME, MX, NS and TXT for the apex and `www`; compare with the stored baseline | hourly | any record differs from the baseline. Owen accepts a change to make it the new baseline. | M4 |
 | 6 | **Email authentication** | Exactly one SPF record, under 10 DNS lookups, DMARC record present | daily | SPF missing, duplicated or over the lookup limit, or DMARC missing | M4 |
 | 7 | **Broken links** | Crawl the site's internal links (same host, depth limit, polite rate), `HEAD` external links | daily | any internal link returns 4xx/5xx | M5 |
@@ -94,18 +96,22 @@ Seed list, the 11 live sites (from `Career/Master Source.md`): davesbakery.ca, c
 ### Incident rules
 - A check result is `ok`, `warn` or `fail`. An **incident** is a period of non-ok results, with a start, an end and a duration.
 - Uptime needs 2 consecutive failures to open an incident (about 10 minutes), which stops one network blip from paging anyone.
-- An incident sends **one** alert when it opens, a reminder every 24 h while it stays open, and a recovery notice with the duration when it closes.
+- An incident sends **one** alert when it opens, a reminder every 24 h while it stays open, and a recovery notice with the duration when it closes. A warning incident that becomes critical sends one `escalated` alert.
+- A result is `ok`, `warn` (opens a *warning* incident) or `fail` (opens a *critical* one). An incident is dated from the first failure of its streak.
+- A check that cannot form an opinion (content on a page that did not load, RDAP rate-limited) records nothing, so one outage is one incident, not three.
+- An alert that fails to send is retried on the next run; `alerts` only holds alerts that actually went out.
+- Full reasoning: [docs/decisions/0003-incident-and-alert-rules.md](docs/decisions/0003-incident-and-alert-rules.md).
 - DNS drift incidents stay open until Owen accepts the new baseline (`POST /sites/{id}/dns-baseline/accept`, or the CLI).
 - **Sitewatch never emails a client.** Alerts and monthly reports go to Owen only; he decides what to forward. This matches the vault's standing rule that nothing contacts clients automatically.
 
 ### Data model (first cut)
 ```
 sites          id, name, domain, urls[], expected_text, active, created_at
-checks         id, site_id, kind, interval_seconds, config jsonb, enabled
+checks         id, site_id, kind, key, interval_seconds, config jsonb, enabled      (unique site_id, key)
 check_results  id, check_id, started_at, duration_ms, status, detail jsonb     (indexed on check_id, started_at)
-incidents      id, check_id, opened_at, resolved_at, severity, summary, last_alerted_at
+incidents      id, check_id, opened_at, resolved_at, severity, summary, last_alerted_at   (one open per check)
 dns_baselines  id, site_id, records jsonb, accepted_at
-alerts         id, incident_id, channel, sent_at, kind (open|reminder|resolved)
+alerts         id, incident_id, channel, sent_at, kind (open|escalated|reminder|resolved)
 ```
 Migrations with Alembic. `check_results` grows by about 3,500 rows a day at 11 sites; keep 90 days of raw results and a daily rollup table (uptime %, p50/p95 response time) forever.
 
@@ -175,10 +181,14 @@ sitewatch/
   README.md                 this brief
   pyproject.toml            uv-managed; ruff, mypy, pytest config
   Dockerfile                multi-stage, non-root user, arm64 + amd64
-  compose.yaml              local dev: api, worker, postgres
+  compose.yaml              local dev: postgres, migrate+seed, worker (api from M2)
+  compose.demo.yaml         local incident demo: adds a fake site to stop and start
   compose.prod.yaml         production overrides: caddy, awslogs driver, restart policies
   Caddyfile
   alembic/                  migrations
+  sites.example.yaml        site list format (the real sites.yaml is git-ignored)
+  demo/                     fake site + its sites file for the local demo
+  docker/                   postgres init (creates the test database)
   src/sitewatch/
     api/                    FastAPI app, routes, auth, templates/
     worker/                 scheduler, runner
@@ -188,6 +198,8 @@ sitewatch/
     db/                     models, session, repositories
     observability/          JSON logging, EMF metrics
     config.py               settings from env / SSM
+    sites.py                sites.yaml validation and idempotent seeding
+    cli.py                  `sitewatch migrate | seed | worker | check`
   tests/
     unit/                   checks, incident rules, report maths
     integration/            API + DB against real Postgres
@@ -195,6 +207,7 @@ sitewatch/
   scripts/                  deploy.sh, backup.sh, restore.sh, seed_sites.py
   docs/
     architecture.md
+    local-dev.md            run, demo, test
     runbook.md              deploy, roll back, restore a backup, rotate secrets, accept DNS change
     threat-model.md
     decisions/              short ADRs (compute choice, scheduling, retention)
@@ -217,7 +230,7 @@ Each milestone ends with something working and verified, not "code written". Wor
 - Install: Docker (OrbStack or Docker Desktop), `uv`, `terraform`, `awscli`. Create the GitHub repo.
 - Done when: `aws sts get-caller-identity` works with the admin user, and `docker run hello-world` works.
 
-**M1: The core, locally**
+**M1: The core, locally** (code complete 2026-09-17; waiting on Docker for the final check)
 - Project skeleton, config, DB models, first Alembic migration.
 - Checks 1–4 (uptime, content, TLS, domain), the scheduler, and the incident state machine.
 - `sites.yaml` seeded with the 11 sites.
