@@ -23,7 +23,7 @@ from sqlalchemy.orm import selectinload
 from sitewatch.checks import DEFAULT_INTERVALS
 from sitewatch.db.models import Check, Site
 
-SEEDED_KINDS = ("uptime", "content", "tls", "domain")
+SEEDED_KINDS = ("uptime", "content", "tls", "domain", "dns", "email_auth")
 
 
 class SiteEntry(BaseModel):
@@ -119,6 +119,16 @@ def check_specs(entry: SiteEntry, defaults: dict[str, dict[str, int]]) -> list[C
     )
     specs.append(
         CheckSpec("domain", f"domain:{entry.domain}", intervals["domain"], {}, enabled("domain"))
+    )
+    specs.append(CheckSpec("dns", f"dns:{entry.domain}", intervals["dns"], {}, enabled("dns")))
+    specs.append(
+        CheckSpec(
+            "email_auth",
+            f"email_auth:{entry.domain}",
+            intervals["email_auth"],
+            {},
+            enabled("email_auth"),
+        )
     )
     return specs
 

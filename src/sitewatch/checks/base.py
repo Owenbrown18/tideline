@@ -21,6 +21,7 @@ from typing import Any, Literal
 import httpx
 
 from sitewatch.checks.http import PageFetcher
+from sitewatch.checks.resolver import PublicResolver, Resolver
 
 Status = Literal["ok", "warn", "fail"]
 Config = Mapping[str, Any]
@@ -42,6 +43,7 @@ class Clients:
     http: httpx.AsyncClient
     pages: PageFetcher
     ssl_context: ssl.SSLContext = field(default_factory=ssl.create_default_context)
+    resolver: Resolver = field(default_factory=PublicResolver)
     now: Callable[[], datetime] = utcnow
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep
     uptime_retry_delay_seconds: float = 30.0

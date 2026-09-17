@@ -15,10 +15,12 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import selectinload
 
 from sitewatch.checks import REGISTRY, Clients, Result
+from sitewatch.db.baselines import get_baseline, set_baseline
 from sitewatch.db.models import Check, CheckResult
 from sitewatch.incidents.service import process_result
 from sitewatch.notify.base import Notifier
 from sitewatch.observability.logging import log_event
+from sitewatch.observability.metrics import emit as emit_metrics
 
 log = logging.getLogger("sitewatch.runner")
 
@@ -56,6 +58,14 @@ class Runner:
     async def run_check(self, check_id: int) -> Result | None:
         async with self.sessionmaker() as session:
             check = await self._load(session, check_id)
+            # The DNS check compares against the accepted baseline, which only
+            # the database knows. Load it here and pass it in as config, so the
+            # check itself stays a pure function.
+            baseline = (
+                await get_baseline(session, check.site_id)
+                if check and check.kind == "dns"
+                else None
+            )
         if check is None or not check.enabled or not check.site.active:
             return None
         check_fn = REGISTRY.get(check.kind)
@@ -66,8 +76,11 @@ class Runner:
         async with self._semaphore:
             started_at = self.clients.now()
             t0 = time.perf_counter()
+            config = build_config(check)
+            if check.kind == "dns" and baseline is not None:
+                config["baseline"] = baseline
             try:
-                result = await check_fn(build_config(check), self.clients)
+                result = await check_fn(config, self.clients)
             except Exception:
                 # A bug in a check must not look like an outage, and must not be silent.
                 self.stats["check_errors"] += 1
@@ -108,6 +121,9 @@ class Runner:
             )
             session.add(row)
             await session.flush()
+            if result.detail.get("baseline_captured"):
+                # First DNS run for this site: what it found becomes the baseline.
+                await set_baseline(session, check.site_id, result.detail["records"], started_at)
             decision = await process_result(
                 session,
                 check,
@@ -120,6 +136,7 @@ class Runner:
 
         if result.status != "ok":
             self.stats["check_failures"] += 1
+        emit_metrics({"check_duration_ms": duration_ms})
         log_event(
             log,
             "check_result",

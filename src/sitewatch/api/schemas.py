@@ -94,6 +94,13 @@ class SiteDetailOut(SiteOut):
     open_incident_list: list[IncidentOut]
 
 
+class DnsBaselineOut(BaseModel):
+    site_id: int
+    accepted_at: datetime
+    records: dict[str, dict[str, list[str]]]
+    incidents_resolved: int
+
+
 class UptimeOut(BaseModel):
     site_id: int
     days: int

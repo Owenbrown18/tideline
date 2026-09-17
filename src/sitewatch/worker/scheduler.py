@@ -20,8 +20,9 @@ from sitewatch.checks.http import PageFetcher
 from sitewatch.config import Settings
 from sitewatch.db.models import Check, Incident, Site
 from sitewatch.db.session import make_engine, make_sessionmaker
-from sitewatch.notify.base import LogNotifier, Notifier
+from sitewatch.notify import Notifier, build_notifier
 from sitewatch.observability.logging import log_event
+from sitewatch.observability.metrics import emit as emit_metrics
 from sitewatch.worker.runner import Runner
 
 log = logging.getLogger("sitewatch.worker")
@@ -52,7 +53,7 @@ class Worker:
         self.runner = Runner(
             self.sessionmaker,
             self.clients,
-            notifier or LogNotifier(),
+            notifier or build_notifier(settings),
             max_concurrent=settings.max_concurrent_checks,
             reminder_every=timedelta(hours=settings.reminder_hours),
         )
@@ -113,6 +114,17 @@ class Worker:
             )
         stats = dict(self.runner.stats)
         self.runner.stats.clear()
+        # The heartbeat metric is what the "watching the watcher" alarm watches:
+        # if this stops arriving for 15 minutes, CloudWatch emails Owen through
+        # SNS, which does not depend on this instance or on SES.
+        emit_metrics(
+            {
+                "worker_heartbeat": 1,
+                "checks_run": stats.get("checks_run", 0),
+                "check_failures": stats.get("check_failures", 0),
+                "open_incidents": open_incidents or 0,
+            }
+        )
         log_event(
             log,
             "worker_heartbeat",

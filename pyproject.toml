@@ -7,6 +7,7 @@ requires-python = ">=3.12"
 dependencies = [
     "alembic>=1.20.0",
     "apscheduler>=3.10,<4",
+    "boto3>=1.43.97",
     "dnspython>=2.8.0",
     "fastapi>=0.141.1",
     "httpx>=0.28.1",
@@ -28,6 +29,9 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
+    "boto3-stubs>=1.43.97",
+    "botocore-stubs>=1.43.67",
+    "moto[ses]>=5.2.3",
     "mypy>=2.3.1",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",

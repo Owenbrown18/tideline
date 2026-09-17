@@ -39,6 +39,13 @@ class Settings(BaseSettings):
     api_host: str = "0.0.0.0"
     api_port: int = 8000
 
+    # Alerts. "log" writes them as log lines (local development), "ses" emails
+    # them to alert_email. Sitewatch has no client addresses: alerts go to Owen.
+    notify_channel: str = "log"
+    alert_email: str = "owenjosephbrown@gmail.com"
+    alert_sender: str = "sitewatch@obwebdesign.ca"
+    aws_region: str = "ca-central-1"
+
     # Where RDAP lookups go. rdap.org redirects to the right registry (CIRA for .ca).
     rdap_base_url: str = "https://rdap.org/domain/"
 

@@ -103,7 +103,12 @@ async def seed_fake(sessionmaker, url: str) -> dict[str, int]:
                             "domain": "fakesite.test",
                             "expected_text": "Fake Bakery",
                             "urls": [url],
-                            "checks": {"tls": False, "domain": False},
+                            "checks": {
+                                "tls": False,
+                                "domain": False,
+                                "dns": False,
+                                "email_auth": False,
+                            },
                         }
                     ]
                 }

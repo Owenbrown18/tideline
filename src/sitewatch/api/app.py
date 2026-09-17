@@ -7,6 +7,7 @@ terminates HTTPS for status.obwebdesign.ca.
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -21,6 +22,7 @@ from sitewatch.api import queries
 from sitewatch.api.auth import require_api_token, require_dashboard_user
 from sitewatch.api.schemas import (
     CheckOut,
+    DnsBaselineOut,
     Health,
     IncidentOut,
     SiteDetailOut,
@@ -28,6 +30,7 @@ from sitewatch.api.schemas import (
     UptimeOut,
 )
 from sitewatch.config import Settings, get_settings
+from sitewatch.db.baselines import set_baseline
 from sitewatch.db.session import make_engine, make_sessionmaker
 from sitewatch.observability.logging import configure_logging
 
@@ -98,6 +101,39 @@ async def list_incidents(
 ) -> list[IncidentOut]:
     found = await queries.incidents(session, open_only=open, site_id=site_id, limit=limit)
     return [IncidentOut.of(i) for i in found]
+
+
+@api.post(
+    "/sites/{site_id}/dns-baseline/accept",
+    summary="Accept the current DNS records as the new baseline",
+)
+async def accept_dns_baseline(site_id: int, session: Session) -> DnsBaselineOut:
+    """Owen's decision, after a DNS change turns out to be intentional.
+
+    The records from the latest DNS check become the baseline, and the open DNS
+    incident is resolved. DNS incidents never resolve on their own (see
+    incidents/engine.py), because a changed record is either a migration
+    someone did or a domain someone took over.
+    """
+    statuses = await queries.site_statuses(session, site_id)
+    if not statuses:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail=f"no site with id {site_id}")
+
+    latest = await queries.latest_dns_records(session, site_id)
+    if latest is None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail="no DNS check has run for this site yet, so there is nothing to accept",
+        )
+    # The read above already opened this session's transaction; commit it here.
+    now = datetime.now(UTC)
+    await set_baseline(session, site_id, latest, now)
+    resolved = await queries.resolve_dns_incidents(session, site_id, now)
+    await session.commit()
+
+    return DnsBaselineOut(
+        site_id=site_id, accepted_at=now, records=latest, incidents_resolved=resolved
+    )
 
 
 @dashboard.get("/", response_class=HTMLResponse, summary="Dashboard")

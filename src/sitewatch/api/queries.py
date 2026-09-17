@@ -255,6 +255,45 @@ async def incidents(
     ]
 
 
+async def latest_dns_records(session: AsyncSession, site_id: int) -> dict[str, Any] | None:
+    """The records the most recent DNS check saw for this site."""
+    row = (
+        await session.execute(
+            text(
+                """
+                SELECT r.detail->'records' AS records
+                FROM check_results r
+                JOIN checks c ON c.id = r.check_id
+                WHERE c.site_id = :site_id AND c.kind = 'dns'
+                  AND r.detail ? 'records'
+                ORDER BY r.started_at DESC, r.id DESC
+                LIMIT 1
+                """
+            ),
+            {"site_id": site_id},
+        )
+    ).first()
+    if row is None:
+        return None
+    records: dict[str, Any] = row.records
+    return records
+
+
+async def resolve_dns_incidents(session: AsyncSession, site_id: int, now: datetime) -> int:
+    """Close this site's open DNS incidents. Returns how many were closed."""
+    open_dns = list(
+        await session.scalars(
+            select(Incident)
+            .join(Check, Check.id == Incident.check_id)
+            .where(Check.site_id == site_id, Check.kind == "dns", Incident.resolved_at.is_(None))
+        )
+    )
+    for incident in open_dns:
+        incident.resolved_at = now
+        incident.summary = f"{incident.summary} (accepted as the new baseline)"
+    return len(open_dns)
+
+
 async def recent_results(session: AsyncSession, site_id: int, limit: int = 50) -> list[Row[Any]]:
     return list(
         await session.execute(
