@@ -1,0 +1,55 @@
+# Local development: Postgres, a one-shot migrate+seed job, and the worker.
+#
+#   cp sites.example.yaml sites.yaml   # then list real sites
+#   docker compose up --build
+#
+# The local demo that proves incidents work (see docs/local-dev.md):
+#   docker compose -f compose.yaml -f compose.demo.yaml up --build
+
+name: sitewatch
+
+x-app: &app
+  build: .
+  image: sitewatch:dev
+  environment:
+    SITEWATCH_DATABASE_URL: postgresql+psycopg://sitewatch:sitewatch@postgres:5432/sitewatch
+    SITEWATCH_LOG_LEVEL: ${SITEWATCH_LOG_LEVEL:-INFO}
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: sitewatch
+      POSTGRES_PASSWORD: sitewatch   # local only; production reads it from SSM
+      POSTGRES_DB: sitewatch
+    ports:
+      - "127.0.0.1:5432:5432"        # reachable from the laptop for tests, not the network
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/postgres-init.sql:/docker-entrypoint-initdb.d/10-test-db.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sitewatch -d sitewatch"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  # Runs once per `up`: apply migrations, then load sites.yaml. Both are idempotent.
+  migrate:
+    <<: *app
+    command: ["sh", "-c", "sitewatch migrate && sitewatch seed /config/sites.yaml"]
+    volumes:
+      - ./${SITES_FILE:-sites.yaml}:/config/sites.yaml:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  worker:
+    <<: *app
+    command: ["sitewatch", "worker"]
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  pgdata:

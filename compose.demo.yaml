@@ -1,0 +1,25 @@
+# Overlay for the local incident demo. Adds a fake client site and points the
+# seed at demo/sites.demo.yaml, with a short uptime retry so it all takes seconds.
+#
+#   docker compose -f compose.yaml -f compose.demo.yaml up --build
+#   docker compose stop fakesite    # watch an incident open in the worker logs
+#   docker compose start fakesite   # ...and resolve
+
+services:
+  fakesite:
+    image: python:3.12-alpine
+    command: ["python", "-m", "http.server", "8000", "--directory", "/site"]
+    volumes:
+      - ./demo/fakesite:/site:ro
+
+  migrate:
+    volumes: !override
+      - ./demo/sites.demo.yaml:/config/sites.yaml:ro
+
+  worker:
+    environment:
+      SITEWATCH_UPTIME_RETRY_DELAY_SECONDS: "2"
+      SITEWATCH_HEARTBEAT_SECONDS: "15"
+    depends_on:
+      fakesite:
+        condition: service_started
