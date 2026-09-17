@@ -4,7 +4,7 @@
 
 It is a Python backend running in Docker on AWS, deployed by GitHub Actions, with tests, structured logs, metrics and alarms. The name is a working name.
 
-> **Status (2026-09-17):** M1 code complete and verified outside Docker (118 tests; a live worker run against all 11 sites plus a killed-and-restarted fake site opened and resolved an incident). M1 is signed off once `docker compose up` is run after M0 installs Docker. M0 (AWS account, tools) is with Owen. This file is the spec: build against it, and update it when a decision changes.
+> **Status (2026-09-17):** M1 done and verified in Docker: `docker compose up` ran migrate, seed and the worker (non-root, arm64 image); stopping the demo site opened an incident 36 s later and restarting it resolved it 9 s later, with both alerts and 78 results in Postgres; 118 tests pass against Postgres 16 in Docker. M0: tools installed (OrbStack, uv, AWS CLI, Terraform), AWS account created, CLI sign-in and account hardening in progress. Repo will be public. This file is the spec: build against it, and update it when a decision changes.
 >
 > **Run it locally:** [docs/local-dev.md](docs/local-dev.md). **How the code fits together:** [docs/architecture.md](docs/architecture.md).
 
@@ -230,7 +230,7 @@ Each milestone ends with something working and verified, not "code written". Wor
 - Install: Docker (OrbStack or Docker Desktop), `uv`, `terraform`, `awscli`. Create the GitHub repo.
 - Done when: `aws sts get-caller-identity` works with the admin user, and `docker run hello-world` works.
 
-**M1: The core, locally** (code complete 2026-09-17; waiting on Docker for the final check)
+**M1: The core, locally** (done 2026-09-17)
 - Project skeleton, config, DB models, first Alembic migration.
 - Checks 1–4 (uptime, content, TLS, domain), the scheduler, and the incident state machine.
 - `sites.yaml` seeded with the 11 sites.
@@ -290,5 +290,5 @@ Roughly **USD 15–20/month**: the `t4g.small` instance, a 20 GB gp3 volume, a s
 ## 9. Open decisions (Owen)
 
 1. **Name.** Sitewatch is a working name.
-2. **Public or private repo.** Public is better for applications (several postings ask for a GitHub profile) and is safe with the site list kept out of git. Default: public.
+2. ~~**Public or private repo.**~~ Decided 2026-09-17: public.
 3. **Dashboard address.** Default: `status.obwebdesign.ca`.
