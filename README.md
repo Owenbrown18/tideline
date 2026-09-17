@@ -4,7 +4,7 @@
 
 It is a Python backend running in Docker on AWS, deployed by GitHub Actions, with tests, structured logs, metrics and alarms. The name is a working name.
 
-> **Status (2026-09-17):** **M0 and M1 done.** M0: AWS account 053578820490 in ca-central-1, root MFA on, USD 25/month budget with email alerts at 50/80/forecast-100%, AWS Organizations plus IAM Identity Center with an `Administrators` group and an admin user (no access keys on the laptop; `aws sso login --profile sitewatch`), tools installed (OrbStack, uv, AWS CLI, Terraform), public repo at github.com/Owenbrown18/sitewatch. M1: verified with `docker compose up` plus the incident demo, 118 tests green. Next: M2 (API, dashboard, CI). This file is the spec: build against it, and update it when a decision changes.
+> **Status (2026-09-17):** **M0, M1, M2 done. M3 running on AWS**, waiting on two things outside the code: the `status.obwebdesign.ca` DNS record (Hostinger, A record to 15.175.12.202) and GitHub Actions, which is disabled on Owen's GitHub account. Live now: account 053578820490, `t4g.small` Graviton in ca-central-1, Docker compose running caddy, api, worker and postgres, image in ECR, secrets in SSM, deploys through SSM Run Command, self-rollback verified with a deliberately broken build. About USD 20/month against a USD 25 budget alarm. 136 tests.
 >
 > **Run it locally:** [docs/local-dev.md](docs/local-dev.md). **How the code fits together:** [docs/architecture.md](docs/architecture.md).
 
@@ -152,7 +152,7 @@ Everything except `/healthz` requires auth (a bearer token for the API, basic au
 | Metrics | CloudWatch Embedded Metric Format from the app; CloudWatch agent for host CPU, memory, disk | `checks_run`, `check_failures`, `check_duration_ms`, `open_incidents`, `worker_heartbeat`. |
 | Alarms | CloudWatch Alarms → SNS email | Watches the watcher (below). |
 | Email | Amazon SES, domain identity on obwebdesign.ca with DKIM | Alerts and monthly reports to Owen. SES sandbox is fine because the only recipient is Owen. |
-| Secrets | SSM Parameter Store (SecureString) | DB password, API token, SES settings. Nothing secret in the repo or the image. |
+| Secrets | SSM Parameter Store (SecureString) | DB password, API token, dashboard password, and `sites.yaml` itself. Nothing secret in the repo, the image, or Terraform state. |
 
 ### Decision record: why a single EC2 box and not Lambda, ECS or RDS
 - **Lambda + RDS:** a Lambda that talks to RDS must sit inside a VPC, and a Lambda inside a VPC cannot reach the internet without a NAT gateway (about USD 30+/month on its own). A monitoring tool whose whole job is reaching the internet walks straight into that trap.
@@ -203,8 +203,9 @@ sitewatch/
   tests/
     unit/                   checks, incident rules, report maths
     integration/            API + DB against real Postgres
-  infra/                    Terraform: network/SG, EC2, IAM, ECR, S3, SES, SNS, CloudWatch, budget
-  scripts/                  deploy.sh, backup.sh, restore.sh, seed_sites.py
+  infra/                    Terraform: network/SG, EC2, IAM, ECR, S3, SSM document, GitHub OIDC
+  deploy/                   what runs on the server: compose.prod.yaml, Caddyfile, deploy.sh
+  scripts/                  bootstrap_state.sh (Terraform state bucket), put_secrets.sh (SSM)
   docs/
     architecture.md
     local-dev.md            run, demo, test
@@ -243,11 +244,11 @@ Each milestone ends with something working and verified, not "code written". Wor
 - `ci.yml`: ruff, mypy, pytest with a real Postgres service container. Green on every push.
 - Done when: CI is green, and the image builds for arm64.
 
-**M3: AWS infrastructure and deploys**
+**M3: AWS infrastructure and deploys** (infrastructure live 2026-09-17; DNS and GitHub Actions outstanding)
 - Terraform: security group, EC2 (Amazon Linux 2023, Docker installed by user-data), instance role, ECR, S3 backup bucket, SSM parameters, GitHub OIDC role.
 - `deploy.yml`: build, push, SSM deploy, health-check, roll back on failure.
 - Caddy serving `status.obwebdesign.ca` over HTTPS (one DNS record at the obwebdesign.ca DNS host).
-- Done when: a push to `main` goes live without touching the server, and a deliberately broken build rolls back by itself.
+- Done when: a push to `main` goes live without touching the server, and a deliberately broken build rolls back by itself. **Rollback verified 2026-09-17** (broken image, health check failed, previous tag restored automatically). The push-to-deploy half needs GitHub Actions enabled on the account.
 
 **M4: Alerts and observability**
 - SES domain identity and DKIM, alert emails (open, reminder, resolved).
@@ -291,4 +292,4 @@ Roughly **USD 15–20/month**: the `t4g.small` instance, a 20 GB gp3 volume, a s
 
 1. **Name.** Sitewatch is a working name.
 2. ~~**Public or private repo.**~~ Decided 2026-09-17: public.
-3. **Dashboard address.** Default: `status.obwebdesign.ca`.
+3. ~~**Dashboard address.**~~ Decided: `status.obwebdesign.ca`, A record at Hostinger to 15.175.12.202.
