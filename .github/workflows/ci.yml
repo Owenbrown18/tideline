@@ -1,0 +1,97 @@
+name: CI
+
+# Lint, type-check and test on every push and pull request, then prove the
+# production image builds for arm64 (the Graviton instance) and amd64.
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: sitewatch
+          POSTGRES_PASSWORD: sitewatch
+          POSTGRES_DB: sitewatch_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U sitewatch -d sitewatch_test"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 30
+    env:
+      # A real Postgres, so the integration tests and the migrations are exercised.
+      SITEWATCH_TEST_DATABASE_URL: postgresql+psycopg://sitewatch:sitewatch@localhost:5432/sitewatch_test
+      # Without this, a missing database would skip those tests instead of failing.
+      SITEWATCH_REQUIRE_DB: "1"
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      - name: Lint (ruff)
+        run: uv run ruff check .
+
+      - name: Format check (ruff)
+        run: uv run ruff format --check .
+
+      - name: Types (mypy, strict)
+        run: uv run mypy
+
+      - name: Tests (pytest)
+        run: uv run pytest -q
+
+      - name: sites.example.yaml still seeds
+        run: |
+          uv run sitewatch migrate
+          uv run sitewatch seed sites.example.yaml
+        env:
+          SITEWATCH_DATABASE_URL: postgresql+psycopg://sitewatch:sitewatch@localhost:5432/sitewatch
+
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build the image for arm64 and amd64
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/arm64,linux/amd64
+          push: false
+          tags: sitewatch:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test the image (amd64, loaded locally)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: sitewatch:smoke
+          cache-from: type=gha
+
+      # No network calls here: a slow third-party site must not turn CI red.
+      - name: The CLI runs inside the image, as a non-root user
+        run: |
+          docker run --rm sitewatch:smoke sitewatch --help
+          docker run --rm sitewatch:smoke sitewatch check --help
+          test "$(docker run --rm sitewatch:smoke id -un)" = sitewatch

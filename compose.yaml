@@ -1,7 +1,10 @@
-# Local development: Postgres, a one-shot migrate+seed job, and the worker.
+# Local development: Postgres, a one-shot migrate+seed job, the worker and the API.
 #
 #   cp sites.example.yaml sites.yaml   # then list real sites
 #   docker compose up --build
+#
+# Dashboard: http://localhost:8000/ (basic auth, defaults owen / dev-password)
+# API:       curl -H "Authorization: Bearer dev-token" http://localhost:8000/sites
 #
 # The local demo that proves incidents work (see docs/local-dev.md):
 #   docker compose -f compose.yaml -f compose.demo.yaml up --build
@@ -14,6 +17,10 @@ x-app: &app
   environment:
     SITEWATCH_DATABASE_URL: postgresql+psycopg://sitewatch:sitewatch@postgres:5432/sitewatch
     SITEWATCH_LOG_LEVEL: ${SITEWATCH_LOG_LEVEL:-INFO}
+    # Local development values only. Production reads these from SSM Parameter Store.
+    SITEWATCH_API_TOKEN: ${SITEWATCH_API_TOKEN:-dev-token}
+    SITEWATCH_DASHBOARD_USER: ${SITEWATCH_DASHBOARD_USER:-owen}
+    SITEWATCH_DASHBOARD_PASSWORD: ${SITEWATCH_DASHBOARD_PASSWORD:-dev-password}
 
 services:
   postgres:
@@ -47,6 +54,22 @@ services:
     <<: *app
     command: ["sitewatch", "worker"]
     restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  api:
+    <<: *app
+    command: ["sitewatch", "api"]
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8000:8000"   # http://localhost:8000 (Caddy fronts this in production)
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/healthz').status == 200 else 1)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
     depends_on:
       migrate:
         condition: service_completed_successfully
