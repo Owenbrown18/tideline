@@ -25,9 +25,13 @@ resource "aws_instance" "app" {
   vpc_security_group_ids = [aws_security_group.instance.id]
   iam_instance_profile   = aws_iam_instance_profile.instance.name
   user_data              = local.user_data
-  # Replacing the box on a user-data change is deliberate: it proves the machine
-  # can be rebuilt from code, which is the point of writing it down.
-  user_data_replace_on_change = true
+  # Deliberately false. It was true, and a one-line comment change to the
+  # user-data template destroyed the instance and its database on 2026-09-17.
+  # Rebuilding the machine is still easy, but it has to be asked for:
+  #   terraform apply -replace=aws_instance.app
+  # The Postgres data now lives on its own volume (below), so even that keeps
+  # the database.
+  user_data_replace_on_change = false
 
   root_block_device {
     volume_size = var.root_volume_gb
@@ -49,6 +53,31 @@ resource "aws_instance" "app" {
     # purpose: `terraform apply -replace=aws_instance.app`.
     ignore_changes = [ami]
   }
+}
+
+# The database lives on its own volume, not on the root disk, so replacing or
+# rebuilding the instance does not lose monitoring history. `prevent_destroy`
+# means Terraform refuses to delete it even if the resource is removed from the
+# configuration by accident.
+resource "aws_ebs_volume" "pgdata" {
+  availability_zone = aws_subnet.public.availability_zone
+  size              = 10
+  type              = "gp3"
+  encrypted         = true
+  tags              = { Name = "sitewatch-pgdata" }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "aws_volume_attachment" "pgdata" {
+  device_name = "/dev/sdf"
+  volume_id   = aws_ebs_volume.pgdata.id
+  instance_id = aws_instance.app.id
+  # Detach cleanly when the instance is replaced rather than taking the volume
+  # down with it.
+  stop_instance_before_detaching = true
 }
 
 # A fixed address, so the DNS record for status.obwebdesign.ca keeps working

@@ -95,8 +95,13 @@ Seeding is idempotent: sites removed from the file go inactive, and their
 history is kept.
 
 ## Rebuild the server from scratch
-The instance holds nothing that is not in code, S3 or SSM, except the Postgres
-volume. Restore a backup afterwards (below).
+The instance holds nothing that is not in code, S3 or SSM. The database is on a
+separate volume that is detached and reattached, so history survives.
+
+Learned the hard way on 2026-09-17: the instance used to have
+`user_data_replace_on_change = true`, and editing a comment in the user-data
+template destroyed the box and its database. It is now false, and the database
+has its own volume.
 
 ```bash
 cd infra
@@ -106,8 +111,14 @@ terraform apply -replace=aws_instance.app
 The Elastic IP moves to the new instance, so DNS keeps working.
 
 ## Backups and restore
-Nightly `pg_dump` to `s3://sitewatch-data-053578820490/backups/`, kept 30 days
-(M4 adds the schedule and the failure alarm).
+Nightly `pg_dump` to `s3://sitewatch-data-053578820490/backups/` at 03:20 UTC,
+kept 30 days, run by the `sitewatch-backup.timer` systemd timer. The script
+publishes `backup_success` to CloudWatch, and the alarm treats missing data as
+breaching, so a backup that never runs is noticed within 36 hours.
+
+The database itself lives on its own EBS volume (`sitewatch-pgdata`, 10 GB)
+mounted at `/opt/sitewatch/pgdata`, so replacing the instance keeps the data.
+Terraform has `prevent_destroy` on that volume.
 
 Take one now:
 
@@ -135,7 +146,10 @@ docker compose --env-file compose.env -f compose.prod.yaml exec -T postgres \
 ```
 
 Record the date, the file and the row count here each time a restore is tested.
-Restores tested so far: none yet (due in M4).
+
+| Date | Backup file | Restored | Result |
+|---|---|---|---|
+| 2026-09-17 | `sitewatch-2026-09-17T22-58-10Z.sql.gz` (11,292 bytes) | 11 sites, 66 checks, 169 results, 11 DNS baselines | Restored into `restore_test`, row counts and site names checked, database dropped. Took under a minute. |
 
 ## Accept a DNS change (M4)
 DNS drift opens an incident that stays open until the new records are accepted:
