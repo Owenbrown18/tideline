@@ -4,7 +4,7 @@
 
 It is a Python backend running in Docker on AWS, deployed by GitHub Actions, with tests, structured logs, metrics and alarms. The name is a working name.
 
-> **Status (2026-09-17):** **M0, M1, M2 done. M3 running on AWS**, waiting on two things outside the code: the `status.obwebdesign.ca` DNS record (Hostinger, A record to 15.175.12.202) and GitHub Actions, which is disabled on Owen's GitHub account. Live now: account 053578820490, `t4g.small` Graviton in ca-central-1, Docker compose running caddy, api, worker and postgres, image in ECR, secrets in SSM, deploys through SSM Run Command, self-rollback verified with a deliberately broken build. About USD 20/month against a USD 25 budget alarm. 136 tests.
+> **Status (2026-09-17):** **M0 to M3 done. Live at https://status.obwebdesign.ca/** (Let's Encrypt certificate through Caddy, basic auth, all 11 sites reporting ok). Account 053578820490, `t4g.small` Graviton in ca-central-1 running caddy, api, worker and postgres; image in ECR; secrets and the site list in SSM; deploys through SSM Run Command with verified automatic rollback. About USD 20/month against a USD 25 budget alarm. 136 tests. One thing outstanding: GitHub Actions is disabled because the GitHub account is flagged (appeal filed), so deploys run from the laptop with the commands in docs/runbook.md until that clears.
 >
 > **Run it locally:** [docs/local-dev.md](docs/local-dev.md). **How the code fits together:** [docs/architecture.md](docs/architecture.md).
 
@@ -244,10 +244,10 @@ Each milestone ends with something working and verified, not "code written". Wor
 - `ci.yml`: ruff, mypy, pytest with a real Postgres service container. Green on every push.
 - Done when: CI is green, and the image builds for arm64.
 
-**M3: AWS infrastructure and deploys** (infrastructure live 2026-09-17; DNS and GitHub Actions outstanding)
+**M3: AWS infrastructure and deploys** (done 2026-09-17; push-to-deploy waits on the GitHub account)
 - Terraform: security group, EC2 (Amazon Linux 2023, Docker installed by user-data), instance role, ECR, S3 backup bucket, SSM parameters, GitHub OIDC role.
 - `deploy.yml`: build, push, SSM deploy, health-check, roll back on failure.
-- Caddy serving `status.obwebdesign.ca` over HTTPS (one DNS record at the obwebdesign.ca DNS host).
+- Caddy serving `status.obwebdesign.ca` over HTTPS (one DNS record at the obwebdesign.ca DNS host). **Done 2026-09-17**: A record at Hostinger to 15.175.12.202, certificate from Let's Encrypt over the http-01 challenge.
 - Done when: a push to `main` goes live without touching the server, and a deliberately broken build rolls back by itself. **Rollback verified 2026-09-17** (broken image, health check failed, previous tag restored automatically). The push-to-deploy half needs GitHub Actions enabled on the account.
 
 **M4: Alerts and observability**
