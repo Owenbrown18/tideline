@@ -1,0 +1,69 @@
+[project]
+name = "sitewatch"
+version = "0.1.0"
+description = "Monitoring service for the websites OBdesign runs: uptime, content, TLS and domain checks with incidents and alerts."
+authors = [{ name = "Owen Brown" }]
+requires-python = ">=3.12"
+dependencies = [
+    "alembic>=1.20.0",
+    "apscheduler>=3.10,<4",
+    "dnspython>=2.8.0",
+    "httpx>=0.28.1",
+    "psycopg[binary]>=3.2",
+    "pydantic>=2.13.5",
+    "pydantic-settings>=2.15.0",
+    "pyyaml>=6.0.3",
+    "sqlalchemy[asyncio]>=2.0",
+]
+
+[project.scripts]
+sitewatch = "sitewatch.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.12.15,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "mypy>=2.3.1",
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "respx>=0.23.1",
+    "ruff>=0.16.8",
+    "trustme>=1.2.1",
+    "types-pyyaml>=6.0.12.20260906",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = ["alembic/versions"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "ASYNC", "RUF"]
+
+[tool.ruff.lint.isort]
+# The local alembic/ migrations folder would otherwise make ruff treat the library as first-party.
+known-third-party = ["alembic"]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests deliberately contain curly quotes and long literal strings.
+"tests/**" = ["RUF001", "E501"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+packages = ["sitewatch"]
+mypy_path = "src"
+
+[[tool.mypy.overrides]]
+module = ["apscheduler.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
+markers = ["integration: needs a real Postgres (SITEWATCH_TEST_DATABASE_URL)"]

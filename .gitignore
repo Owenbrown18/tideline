@@ -1,0 +1,22 @@
+# Real client configuration stays out of git (see sites.example.yaml)
+sites.yaml
+.env
+*.tfvars
+!*.example.tfvars
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+dist/
+build/
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+
+.DS_Store
