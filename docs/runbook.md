@@ -82,6 +82,17 @@ aws ssm get-parameter --name /sitewatch/dashboard_password --with-decryption \
   --query Parameter.Value --output text
 ```
 
+## Run a check right now
+Rather than waiting for the interval (DNS is hourly, email authentication daily):
+
+```bash
+aws ssm start-session --target i-010dc8609621b4d18
+sudo -i && cd /opt/sitewatch
+compose() { docker compose --env-file compose.env -f compose.prod.yaml "$@"; }
+compose run --rm --no-deps api sitewatch run-once --kind dns
+compose run --rm --no-deps api sitewatch run-once --kind email_auth --site davesbakery.ca
+```
+
 ## Change the site list
 `sites.yaml` is not in git. Production reads it from `/sitewatch/sites_yaml`:
 
@@ -151,12 +162,49 @@ Record the date, the file and the row count here each time a restore is tested.
 |---|---|---|---|
 | 2026-09-17 | `sitewatch-2026-09-17T22-58-10Z.sql.gz` (11,292 bytes) | 11 sites, 66 checks, 169 results, 11 DNS baselines | Restored into `restore_test`, row counts and site names checked, database dropped. Took under a minute. |
 
-## Accept a DNS change (M4)
-DNS drift opens an incident that stays open until the new records are accepted:
+## Accept a DNS change
+DNS drift opens an incident that stays open until the new records are accepted.
+Accepting stores what the latest DNS check saw as the new baseline and closes
+the incident:
 
 ```bash
-curl -X POST -H "Authorization: Bearer $SITEWATCH_API_TOKEN" \
+TOKEN=$(aws ssm get-parameter --name /sitewatch/api_token --with-decryption --query Parameter.Value --output text)
+curl -s -X POST -H "Authorization: Bearer $TOKEN" \
   https://status.obwebdesign.ca/sites/<id>/dns-baseline/accept
+```
+
+The old baseline is kept as history, so "what did DNS look like before" stays
+answerable.
+
+Addresses behind a CNAME are deliberately not compared: Vercel rotates the
+addresses behind `www`, which produced seven false drift incidents on
+2026-09-17 before the rule was added.
+
+## Alerts and alarms
+Two separate paths, on purpose:
+
+- **Incidents** (a site is down, a certificate is expiring) go out as SES email
+  from `sitewatch@obwebdesign.ca` to Owen. The app sends these.
+- **Alarms** (the worker died, the disk is full, a backup failed) go through
+  CloudWatch to SNS to Owen's email. This path does not run on the instance, so
+  it still works when the instance does not.
+
+Test the watch-the-watcher alarm (about 16 minutes):
+
+```bash
+aws ssm start-session --target i-010dc8609621b4d18   # sudo -i, cd /opt/sitewatch
+docker compose --env-file compose.env -f compose.prod.yaml stop worker
+# wait, then:
+aws cloudwatch describe-alarms --alarm-names sitewatch-worker-heartbeat-missing \
+  --query 'MetricAlarms[].StateValue' --output text
+docker compose --env-file compose.env -f compose.prod.yaml start worker
+```
+
+Silence an alarm while working on the box:
+
+```bash
+aws cloudwatch disable-alarm-actions --alarm-names sitewatch-worker-heartbeat-missing
+aws cloudwatch enable-alarm-actions  --alarm-names sitewatch-worker-heartbeat-missing
 ```
 
 ## If the dashboard is down

@@ -49,3 +49,40 @@ APScheduler job "check:<id>" fires on its interval
   this into the CloudWatch metric the "watching the watcher" alarm uses.
 - `max_instances=1` per job: a slow run is never overlapped by the next.
 - SIGTERM (`docker stop`) stops the scheduler and closes connections cleanly.
+
+## Observability (M4)
+
+```
+worker / api containers
+  │  JSON log lines on stdout, one per check result
+  ├──► Docker awslogs driver ──► CloudWatch Logs /sitewatch/containers (30-day retention)
+  │        └── Logs Insights queries per site, per check, per status
+  └──► EMF metric lines ───────► CloudWatch metrics, namespace Sitewatch
+                                   worker_heartbeat, checks_run, check_failures,
+                                   open_incidents, check_duration_ms, backup_success
+                                     │
+CloudWatch agent (host) ──► CWAgent: mem_used_percent, disk_used_percent
+                                     │
+                                     ▼
+                              5 CloudWatch alarms ──► SNS topic ──► Owen's email
+```
+
+**Why metrics as log lines (EMF).** A metric published through `PutMetricData`
+needs credentials, a network call and error handling in the app. EMF is a
+specially shaped JSON line: Docker already ships stdout to CloudWatch Logs, and
+CloudWatch turns the line into a metric on ingestion. One code path, no extra
+failure mode, and the line is still readable in the logs locally where there is
+no CloudWatch at all.
+
+**No per-site metric dimensions.** CloudWatch charges per metric per month, and
+11 sites times 5 metrics would cost more than the server. Aggregate metrics
+drive the alarms; per-site detail comes from the logs, which are already there.
+
+**Two alert paths.** Incidents go out over SES from the app. Alarms (dead
+worker, full disk, failed backup) go over CloudWatch to SNS, which does not
+depend on the instance or on Sitewatch working. If the box dies, the alarm
+still arrives.
+
+**The heartbeat alarm treats missing data as breaching.** This is the whole
+point of watching the watcher: a dead worker publishes nothing, and the
+CloudWatch default (ignore missing data) would leave the alarm green forever.
