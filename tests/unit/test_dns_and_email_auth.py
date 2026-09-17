@@ -105,6 +105,60 @@ async def test_both_apex_and_www_are_checked(make_clients):
     assert {name for name, _ in resolver.calls} == {"example.ca", "www.example.ca"}
 
 
+async def test_addresses_behind_a_cname_are_ignored(make_clients):
+    """Vercel rotates the addresses behind a www CNAME; that is not DNS drift."""
+    first = {
+        "example.ca": {"A": ["76.76.21.21"]},
+        "www.example.ca": {"CNAME": ["x.vercel-dns.com"], "A": ["216.150.1.129"]},
+    }
+    later = {
+        "example.ca": {"A": ["76.76.21.21"]},
+        "www.example.ca": {"CNAME": ["x.vercel-dns.com"], "A": ["216.150.1.1"]},
+    }
+    captured = await dns_drift.run(
+        {"domain": "example.ca"}, make_clients(resolver=resolver_from(first))
+    )
+    assert "A" not in captured.detail["records"]["www.example.ca"]
+
+    result = await dns_drift.run(
+        {"domain": "example.ca", "baseline": captured.detail["records"]},
+        make_clients(resolver=resolver_from(later)),
+    )
+    assert result.status == "ok"
+
+
+async def test_a_record_change_without_a_cname_still_fails(make_clients):
+    """The apex has no CNAME, so its addresses are the client's own config."""
+    before = {"example.ca": {"A": ["76.76.21.21"]}, "www.example.ca": {}}
+    after = {"example.ca": {"A": ["203.0.113.9"]}, "www.example.ca": {}}
+    captured = await dns_drift.run(
+        {"domain": "example.ca"}, make_clients(resolver=resolver_from(before))
+    )
+    result = await dns_drift.run(
+        {"domain": "example.ca", "baseline": captured.detail["records"]},
+        make_clients(resolver=resolver_from(after)),
+    )
+    assert result.status == "fail"
+
+
+async def test_a_cname_change_is_still_caught(make_clients):
+    """If the CNAME itself moves, someone has repointed the site."""
+    before = {"example.ca": {}, "www.example.ca": {"CNAME": ["x.vercel-dns.com"], "A": ["1.1.1.1"]}}
+    after = {
+        "example.ca": {},
+        "www.example.ca": {"CNAME": ["someone-else.wixdns.net"], "A": ["1.1.1.1"]},
+    }
+    captured = await dns_drift.run(
+        {"domain": "example.ca"}, make_clients(resolver=resolver_from(before))
+    )
+    result = await dns_drift.run(
+        {"domain": "example.ca", "baseline": captured.detail["records"]},
+        make_clients(resolver=resolver_from(after)),
+    )
+    assert result.status == "fail"
+    assert "wixdns" in result.summary
+
+
 def test_diff_lists_additions_removals_and_changes():
     changes = diff_records(
         {"a.ca": {"A": ["1.1.1.1"], "TXT": ["old"]}},

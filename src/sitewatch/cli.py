@@ -4,7 +4,8 @@ sitewatch migrate              apply database migrations (alembic upgrade head)
 sitewatch seed [sites.yaml]    load the site list into the database
 sitewatch worker               run the scheduler until stopped
 sitewatch api                  run the API and dashboard (uvicorn)
-sitewatch check <domain> ...   run checks 1-4 once and print the results (no database)
+sitewatch check <domain> ...   run checks once and print the results (no database)
+sitewatch run-once --kind dns  run every enabled check of a kind now, writing results
 """
 
 import argparse
@@ -62,6 +63,37 @@ def cmd_worker(_: argparse.Namespace) -> None:
     asyncio.run(Worker(get_settings()).run())
 
 
+async def _run_once(kind: str | None, domain: str | None) -> None:
+    from sqlalchemy import select
+
+    from sitewatch.db.models import Check, Site
+    from sitewatch.db.session import make_engine, make_sessionmaker
+    from sitewatch.worker.scheduler import Worker
+
+    settings = get_settings()
+    worker = Worker(settings)
+    engine = make_engine(settings.database_url)
+    try:
+        async with make_sessionmaker(engine)() as session:
+            query = select(Check.id).join(Site).where(Check.enabled, Site.active)
+            if kind:
+                query = query.where(Check.kind == kind)
+            if domain:
+                query = query.where(Site.domain == domain)
+            check_ids = list(await session.scalars(query))
+        for check_id in check_ids:
+            await worker.runner.run_check(check_id)
+        print(json.dumps({"event": "run_once", "checks": len(check_ids), "kind": kind}))
+    finally:
+        await engine.dispose()
+        await worker.http.aclose()
+        await worker.engine.dispose()
+
+
+def cmd_run_once(args: argparse.Namespace) -> None:
+    asyncio.run(_run_once(args.kind, args.site))
+
+
 def cmd_api(_: argparse.Namespace) -> None:
     from sitewatch.api.app import run
 
@@ -108,6 +140,11 @@ def main(argv: list[str] | None = None) -> None:
 
     sub.add_parser("worker", help="run the check scheduler").set_defaults(func=cmd_worker)
     sub.add_parser("api", help="run the API and dashboard").set_defaults(func=cmd_api)
+
+    p_run = sub.add_parser("run-once", help="run enabled checks now instead of waiting")
+    p_run.add_argument("--kind", choices=sorted(REGISTRY), help="only this kind of check")
+    p_run.add_argument("--site", help="only this domain")
+    p_run.set_defaults(func=cmd_run_once)
 
     p_check = sub.add_parser("check", help="run checks once against a domain, no database")
     p_check.add_argument("domain")

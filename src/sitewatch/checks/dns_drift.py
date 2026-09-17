@@ -16,10 +16,32 @@ from typing import Any
 from sitewatch.checks.base import Clients, Config, Result
 from sitewatch.checks.resolver import DnsUnavailable, DomainMissing, zone_records
 
+Records = dict[str, dict[str, list[str]]]
 
-def diff_records(
-    baseline: dict[str, dict[str, list[str]]], observed: dict[str, dict[str, list[str]]]
-) -> list[str]:
+
+def ignore_addresses_behind_a_cname(records: Records) -> Records:
+    """Drop A and AAAA records for any name that is a CNAME.
+
+    Found on the live sites on 2026-09-17: `www` points at Vercel with a CNAME,
+    and Vercel answers with a rotating pair of addresses out of a larger pool
+    (216.150.1.129 one hour, 216.150.1.1 the next). Comparing those addresses
+    reported "DNS changed" every hour on seven sites, which is exactly the kind
+    of noise that teaches someone to ignore alerts.
+
+    The client's own DNS configuration is the CNAME. What the CDN puts behind it
+    is the CDN's business and changes without anyone touching the domain, so the
+    CNAME is what gets watched.
+    """
+    pruned: Records = {}
+    for name, types in records.items():
+        if "CNAME" in types:
+            pruned[name] = {k: v for k, v in types.items() if k not in ("A", "AAAA")}
+        else:
+            pruned[name] = types
+    return pruned
+
+
+def diff_records(baseline: Records, observed: Records) -> list[str]:
     """Human-readable differences, one line per record type that changed."""
     changes = []
     for name in sorted(set(baseline) | set(observed)):
@@ -40,10 +62,10 @@ def diff_records(
 async def run(config: Config, clients: Clients) -> Result | None:
     domain: str = config["domain"]
     names: list[str] = list(config.get("names") or [domain, f"www.{domain}"])
-    baseline: dict[str, dict[str, list[str]]] | None = config.get("baseline")
+    baseline: Records | None = config.get("baseline")
 
     try:
-        observed = await zone_records(clients.resolver, names)
+        observed = ignore_addresses_behind_a_cname(await zone_records(clients.resolver, names))
     except DomainMissing as exc:
         return Result(
             "fail",
