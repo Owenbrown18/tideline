@@ -172,6 +172,7 @@ async def seed(session: AsyncSession, sites_file: SitesFile) -> SeedReport:
     """Make the database match the file. The caller commits."""
     report = SeedReport()
     turned_off: list[Check] = []
+    retired: list[Site] = []  # sites that stop being watched: their incidents close
     existing = {
         site.domain: site
         for site in await session.scalars(select(Site).options(selectinload(Site.checks)))
@@ -188,6 +189,8 @@ async def seed(session: AsyncSession, sites_file: SitesFile) -> SeedReport:
         site.name = entry.name
         site.urls = entry.page_urls()
         site.expected_text = entry.expected_text
+        if site.active and not entry.active:
+            retired.append(site)
         site.active = entry.active
 
         by_key = {check.key: check for check in site.checks}
@@ -229,13 +232,16 @@ async def seed(session: AsyncSession, sites_file: SitesFile) -> SeedReport:
         if domain not in listed and site.active:
             site.active = False
             report.sites_deactivated += 1
+            retired.append(site)
 
     await session.flush()
 
     # A check that is switched off can never produce the ok result that would
     # close its incident, so switching it off closes it. Without this, disabling
     # the form check on a site with no contact form left its incident open for
-    # ever (found on 2026-09-17).
+    # ever (found on 2026-09-17). A retired site's checks stop running too, so
+    # the same applies to all of them (found by review, 2026-09-18).
+    turned_off += [check for site in retired for check in site.checks]
     if turned_off:
         closed = await session.execute(
             update(Incident)

@@ -9,7 +9,7 @@ The parsing here is ported from OBdesign's leadgen pipeline
 (`Systems/leadgen/domain_status.py`: `_parse_dt`, `_rdap_registrar`,
 `check_rdap` and `LAPSED_EPP_STATUSES`), where it has classified hundreds of
 real domains. What changed in the port: `httpx` async instead of `requests`,
-no on-disk cache (the check runs once a day, so there is nothing to save), and
+no on-disk cache (the check runs twice a month, so there is nothing to save), and
 the verdict is a Tideline Result instead of a lead tier.
 
 Transient trouble (rdap.org rate limiting, timeouts, 5xx) returns None: a

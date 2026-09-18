@@ -79,27 +79,42 @@ def run_handler(event: dict[str, Any] | None, context: Any) -> dict[str, Any]:
     if task == "run":
         from dataclasses import asdict
 
-        from tideline.worker.run import run
+        from tideline.worker.run import check_all, deliver
 
-        report = asyncio.run(
-            run(settings, sites_file=SITES_PATH, kind=event.get("kind"), domain=event.get("site"))
+        report, outbox = asyncio.run(
+            check_all(
+                settings, sites_file=SITES_PATH, kind=event.get("kind"), domain=event.get("site")
+            )
         )
+        # Save first, then email: if saving fails, nothing has been sent, so
+        # running again cannot send anything twice.
+        _upload(store)
+        report = asyncio.run(deliver(settings, outbox, report))
+        _upload(store)  # the alerts, now recorded as sent
         result |= asdict(report)
+        if report.email_failed:
+            # The results are saved; make the failure loud so the alarm fires.
+            raise RuntimeError(f"the run's emails did not all send: {result}")
     elif task == "report":
         result["sent"] = asyncio.run(_send_reports(settings, str(event["month"])))
-    elif task != "migrate":
+    elif task == "migrate":
+        _upload(store)
+    else:
         raise ValueError(f"unknown task {task!r}")
 
+    log_event(log, "lambda_task_done", **result)
+    return result
+
+
+def _upload(store: S3Database) -> None:
     try:
         store.upload()
     except StaleCopy:
-        # Someone changed the database mid-run (the dashboard's DNS button).
-        # Fail loudly: the Lambda error alarm emails Owen, and the next run
-        # starts from the file as it is in S3.
+        # Someone changed the database meanwhile (the dashboard's DNS button).
+        # Fail loudly: the "run failed" alarm emails Owen, and nothing has been
+        # silently overwritten.
         log.exception("database_upload_refused")
         raise
-    log_event(log, "lambda_task_done", **result)
-    return result
 
 
 def _migrate() -> None:
@@ -160,7 +175,10 @@ def web_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     before = _fingerprint(store.path)
     response: dict[str, Any] = handler(event, context)
 
-    if _fingerprint(store.path) != before:
+    # Only a request that changed an existing database is saved back. (Before
+    # the first run there is no file in S3, and SQLite creating an empty one on
+    # a page view is not worth keeping.)
+    if store.etag is not None and _fingerprint(store.path) != before:
         # The request wrote to the database (accepting a DNS change): save it back.
         try:
             store.upload()

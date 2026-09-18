@@ -169,7 +169,9 @@ def headline(
     'Two sites need you'
     """
     if waiting or total == 0:
-        return Headline("Waiting for the first checks", "none", "Results appear within a minute.")
+        return Headline(
+            "Waiting for the first checks", "none", "Every site is checked on the 1st and 15th."
+        )
     if down_names:
         n = len(down_names)
         subject = "One site needs you" if n == 1 else f"{number_word(n)} sites need you"

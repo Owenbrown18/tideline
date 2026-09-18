@@ -233,7 +233,10 @@ def run_settings():
     from tests.integration.conftest import DATABASE_URL
     from tideline.config import Settings
 
-    return Settings(database_url=DATABASE_URL, uptime_retry_delay_seconds=0)
+    # The fake site is on 127.0.0.1, which real runs refuse to check.
+    return Settings(
+        database_url=DATABASE_URL, uptime_retry_delay_seconds=0, allow_private_addresses=True
+    )
 
 
 async def test_a_run_emails_only_when_something_changes(sessionmaker, fake_site):
@@ -276,10 +279,26 @@ async def test_a_run_on_the_first_sends_the_monthly_reports(sessionmaker, fake_s
 
     await seed_fake(sessionmaker, fake_site.url)
     notifier = RecordingNotifier()
-    # 1 October, 07:00 in Vancouver.
-    report = await run(run_settings(), notifier, now=datetime(2026, 10, 1, 14, 0, tzinfo=UTC))
+    today = datetime.now(UTC)
+    await run(run_settings(), notifier, reports=False)  # a check this month
+    # The 1st of next month, 07:00 in Vancouver: reports go out for this month.
+    first = datetime(today.year + today.month // 12, today.month % 12 + 1, 1, 14, 0, tzinfo=UTC)
+    report = await run(run_settings(), notifier, now=first)
     assert report.reports_sent == 1
-    assert notifier.reports == ["September 2026 report: Fake Bakery"]
+    assert notifier.reports[-1] == f"{today:%B %Y} report: Fake Bakery"
+
+
+async def test_a_site_not_checked_that_month_gets_no_report(sessionmaker, fake_site):
+    from datetime import UTC, datetime
+
+    from tideline.worker.run import run
+
+    await seed_fake(sessionmaker, fake_site.url)
+    notifier = RecordingNotifier()
+    # Its very first run is on the 1st: last month it was not watched yet.
+    report = await run(run_settings(), notifier, now=datetime(2026, 10, 1, 14, 0, tzinfo=UTC))
+    assert report.reports_sent == 0
+    assert not any("report:" in subject for subject in notifier.reports)
 
 
 async def test_a_run_loads_the_site_list_first(sessionmaker, tmp_path, fake_site):
@@ -306,3 +325,72 @@ async def test_a_run_can_be_narrowed_to_one_kind(sessionmaker, fake_site):
     await seed_fake(sessionmaker, fake_site.url)
     report = await run(run_settings(), RecordingNotifier(), kind="content", reports=False)
     assert report.checks == 1
+
+
+async def test_a_summary_that_fails_to_send_is_not_recorded_and_goes_next_run(
+    sessionmaker, fake_site
+):
+    """Found by the correctness review: the alert used to be marked sent anyway."""
+    from tideline.worker.run import run
+
+    await seed_fake(sessionmaker, fake_site.url)
+    await fake_site.stop()
+    notifier = RecordingNotifier()
+    notifier.fail_next = 1  # the email provider is down for this run
+
+    first = await run(run_settings(), notifier, reports=False)
+    assert first.email_failed and not first.summary_emailed
+    [incident] = await incidents(sessionmaker)
+    assert incident.last_alerted_at is None
+    assert await alert_kinds(sessionmaker) == []  # nothing claims it was sent
+
+    second = await run(run_settings(), notifier, reports=False)  # still down, email works
+    assert second.summary_emailed
+    assert notifier.reports == ["Tideline check: 1 new problem"]
+    assert await alert_kinds(sessionmaker) == ["open"]
+
+
+async def test_a_narrowed_run_on_the_first_sends_no_reports(sessionmaker, fake_site):
+    from datetime import UTC, datetime
+
+    from tideline.worker.run import run
+
+    await seed_fake(sessionmaker, fake_site.url)
+    notifier = RecordingNotifier()
+    first = datetime(2026, 10, 1, 14, 0, tzinfo=UTC)
+    report = await run(run_settings(), notifier, kind="content", now=first)
+    assert report.reports_sent == 0
+
+
+async def test_retiring_a_site_closes_its_open_incidents(sessionmaker, fake_site):
+    """Found by review: they stayed open for ever, and in every summary."""
+    from tideline.sites import SitesFile, seed
+    from tideline.worker.run import run
+
+    await seed_fake(sessionmaker, fake_site.url)
+    await fake_site.stop()
+    await run(run_settings(), RecordingNotifier(), reports=False)
+    [incident] = await incidents(sessionmaker)
+    assert incident.resolved_at is None
+
+    async with sessionmaker() as session, session.begin():
+        report = await seed(session, SitesFile.model_validate({"sites": []}))
+    assert report.sites_deactivated == 1
+    [incident] = await incidents(sessionmaker)
+    assert incident.resolved_at is not None
+
+
+async def test_a_check_that_runs_too_long_is_stopped(sessionmaker, runner, clock, monkeypatch):
+    import asyncio
+
+    from tideline.worker import runner as runner_module
+
+    ids = await seed_fake(sessionmaker, "https://fakesite.test/")
+
+    async def hangs(config, clients):
+        await asyncio.sleep(60)
+
+    monkeypatch.setitem(REGISTRY, "uptime", hangs)
+    monkeypatch.setitem(runner_module.DEADLINE_SECONDS, "uptime", 0.05)
+    assert await tick(runner, clock, ids["uptime"]) is None
+    assert runner.stats["check_errors"] == 1

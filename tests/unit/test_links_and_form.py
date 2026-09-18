@@ -291,6 +291,14 @@ async def test_contact_page_404_fails(make_clients):
     assert "HTTP 404" in result.summary
 
 
+@pytest.mark.parametrize("status", [500, 503, 429])
+@respx.mock
+async def test_a_failing_server_is_left_to_the_uptime_check(make_clients, status):
+    # The whole site is down: one outage must be one incident, not two.
+    respx.get("https://example.ca/contact").respond(status)
+    assert await form.run(CONFIGURED, make_clients()) is None
+
+
 @respx.mock
 async def test_dead_endpoint_fails(make_clients):
     respx.get("https://example.ca/contact").respond(200, html=CONTACT_HTML)
@@ -395,3 +403,39 @@ def test_contact_candidates_prefer_paths_then_text_and_stay_on_the_site():
         "https://example.ca/get-in-touch",
         "https://example.ca/enquiries",
     ]
+
+
+# --- only public addresses ------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://127.0.0.1:9001/2018-06-01/runtime/invocation/next",  # Lambda's runtime API
+        "http://169.254.169.254/latest/meta-data/",
+        "http://10.0.0.5/",
+        "http://[::1]/",
+        "http://localhost/",
+    ],
+)
+async def test_real_runs_refuse_private_addresses(url):
+    import httpx
+
+    from tideline.checks.http import make_client
+
+    async with make_client("test") as client:
+        with pytest.raises(httpx.ConnectError, match="private address"):
+            await client.get(url)
+
+
+@respx.mock
+async def test_a_redirect_to_a_private_address_is_refused_too():
+    import httpx
+
+    from tideline.checks.http import refuse_private_addresses
+
+    respx.get("https://93.184.215.14/").respond(302, headers={"Location": "http://10.0.0.5/"})
+    respx.get("http://10.0.0.5/").respond(200)
+    async with httpx.AsyncClient(event_hooks={"request": [refuse_private_addresses]}) as client:
+        with pytest.raises(httpx.ConnectError, match="private address"):
+            await client.get("https://93.184.215.14/", follow_redirects=True)

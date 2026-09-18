@@ -26,6 +26,13 @@ from tideline.observability.metrics import emit as emit_metrics
 
 log = logging.getLogger("tideline.runner")
 
+# The most one check may take, start to finish. httpx's timeouts apply to each
+# step of a request, so without this a server dripping one byte every few
+# seconds could hold a check (and the run) until Lambda gives up. The uptime
+# check needs room for its 30-second retry; the link crawl for its pages.
+DEADLINE_SECONDS = {"links": 240.0, "uptime": 90.0}
+DEFAULT_DEADLINE_SECONDS = 60.0
+
 
 def build_config(check: Check) -> dict[str, Any]:
     """Site-level facts first, then the check's own config on top."""
@@ -82,8 +89,22 @@ class Runner:
             config = build_config(check)
             if check.kind == "dns" and baseline is not None:
                 config["baseline"] = baseline
+            deadline = DEADLINE_SECONDS.get(check.kind, DEFAULT_DEADLINE_SECONDS)
             try:
-                result = await check_fn(config, self.clients)
+                async with asyncio.timeout(deadline):
+                    result = await check_fn(config, self.clients)
+            except TimeoutError:
+                self.stats["check_errors"] += 1
+                log_event(
+                    log,
+                    "check_timeout",
+                    logging.ERROR,
+                    site=check.site.domain,
+                    check_kind=check.kind,
+                    check_key=check.key,
+                    seconds=deadline,
+                )
+                return None
             except Exception:
                 # A bug in a check must not look like an outage, and must not be silent.
                 self.stats["check_errors"] += 1

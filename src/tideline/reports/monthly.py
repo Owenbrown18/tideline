@@ -241,7 +241,9 @@ async def build_report(session: AsyncSession, site_id: int, year: int, month: in
     uptime_ok = sum(row.uptime_ok for row in rows)
     runs = [row for row in rows if row.uptime_checks]  # days a run checked the site
 
-    statuses = await queries.site_statuses(session, site_id)
+    # What was true at the end of the report's month, not today: an August
+    # report read in October still describes August (found by review).
+    statuses = await queries.site_statuses(session, site_id, before=end)
     checks = {c.kind: c for c in statuses[0].checks if c.enabled} if statuses else {}
     order = {
         k: i
@@ -249,10 +251,21 @@ async def build_report(session: AsyncSession, site_id: int, year: int, month: in
             ["uptime", "content", "form", "links", "tls", "domain", "dns", "email_auth"]
         )
     }
-    watched = [
-        Watched(brand.tone(c.status), client_words(c.kind, brand.tone(c.status)), _evidence(c))
-        for c in sorted(checks.values(), key=lambda c: order.get(c.kind, 99))
-    ]
+    # Uptime is a statement about the whole month, so it comes from every run;
+    # the other checks describe how things stood at the month's end.
+    up_runs = sum(1 for r in runs if r.uptime_ok == r.uptime_checks)
+    watched = []
+    for c in sorted(checks.values(), key=lambda c: order.get(c.kind, 99)):
+        tone = brand.tone(c.status)
+        evidence = _evidence(c)
+        if c.kind == "uptime" and runs:
+            tone = "up" if up_runs == len(runs) else "down"
+            evidence = (
+                "at every check"
+                if tone == "up"
+                else f"down at {len(runs) - up_runs} of {len(runs)}"
+            )
+        watched.append(Watched(tone, client_words(c.kind, tone), evidence))
     first_day = await session.scalar(
         select(func.min(DailyRollup.day)).where(DailyRollup.site_id == site_id)
     )
@@ -265,7 +278,7 @@ async def build_report(session: AsyncSession, site_id: int, year: int, month: in
         days_covered=len(rows),
         days_in_month=monthrange(year, month)[1],
         uptime_percent=round(100 * uptime_ok / uptime_checks, 3) if uptime_checks else None,
-        up_runs=sum(1 for r in runs if r.uptime_ok == r.uptime_checks),
+        up_runs=up_runs,
         check_days=[r.day for r in runs],
         checks_run=sum(row.results for row in rows),
         p50_ms=_percentile([row.p50_ms for row in rows if row.p50_ms is not None], 0.5),
@@ -274,7 +287,7 @@ async def build_report(session: AsyncSession, site_id: int, year: int, month: in
         downtime_seconds=sum(row.downtime_seconds for row in rows),
         daily=rows,
         watched=watched,
-        coming_up=_coming_up(checks, datetime.now(UTC).date()),
+        coming_up=_coming_up(checks, min(datetime.now(UTC), end - timedelta(days=1)).date()),
         first_day=first_day,
     )
 
@@ -346,20 +359,29 @@ async def send_month(
     notifier: Notifier,
     year: int,
     month: int,
+    failed: list[str] | None = None,
 ) -> int:
     """Build and send every active site's report for one month. Returns how many went.
 
+    Domains whose report could not be sent are added to `failed`, if given.
+
     One site failing to send does not stop the others: each is logged, and the
-    rest carry on.
+    rest carry on. A site Tideline did not check that month (added since) gets
+    no report: an empty one would only confuse a client.
     """
     sent = 0
     async with sessionmaker() as session:
         for site_id in await sites_for_reports(session):
             report = await build_report(session, site_id, year, month)
+            if not report.daily:
+                log_event(log, "report_skipped_no_checks", site=report.domain)
+                continue
             try:
                 await notifier.send_report(report.subject, render_text(report), render_html(report))
             except Exception:
                 log.exception("report_send_failed", extra={"site": report.domain})
+                if failed is not None:
+                    failed.append(report.domain)
                 continue
             sent += 1
     log_event(log, "monthly_reports_sent", month=f"{year}-{month:02d}", sent=sent)

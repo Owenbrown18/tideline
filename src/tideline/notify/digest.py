@@ -12,12 +12,16 @@ nothing, and the monthly report still arrives on the 1st.
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from tideline import brand
 from tideline.config import get_settings
 from tideline.notify.base import AlertMessage, AlertView, Notifier, describe
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 # Alert kinds that make a run worth an email.
 NEWS = ("open", "escalated", "resolved")
@@ -43,10 +47,16 @@ class StillOpen:
 
 @dataclass
 class Digest:
-    """A notifier that collects a run's alerts, then sends them as one email."""
+    """A notifier that collects a run's alerts, then sends them as one email.
+
+    Alerts are recorded (an `alerts` row, the incident's `last_alerted_at`) only
+    after that email has gone out: see `record`. Until then an unsent "open"
+    alert is retried on the next run, like any alert that failed to send.
+    """
 
     inner: Notifier
     messages: list[AlertMessage] = field(default_factory=list)
+    records_later = True
 
     @property
     def channel(self) -> str:
@@ -61,6 +71,29 @@ class Digest:
 
     def has_news(self) -> bool:
         return any(m.kind in NEWS for m in self.messages)
+
+    def incident_ids(self) -> set[int]:
+        return {m.incident_id for m in self.messages if m.incident_id is not None}
+
+    async def record(self, session: "AsyncSession", when: datetime) -> int:
+        """Write down the alerts this digest delivered. Returns how many."""
+        from tideline.db.models import Alert, Incident
+
+        recorded = 0
+        for message in self.messages:
+            if message.incident_id is None:
+                continue
+            incident = await session.get(Incident, message.incident_id)
+            if incident is None:
+                continue
+            incident.last_alerted_at = when
+            session.add(
+                Alert(
+                    incident_id=incident.id, channel=self.channel, sent_at=when, kind=message.kind
+                )
+            )
+            recorded += 1
+        return recorded
 
     async def flush(self, when: datetime, still_open: list[StillOpen]) -> str | None:
         """Send the run's summary if anything changed. Returns the message id, or None."""

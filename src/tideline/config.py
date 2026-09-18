@@ -32,6 +32,9 @@ class Settings(BaseSettings):
     max_concurrent_checks: int = 5
     # Seconds between the first uptime failure and its one retry (README section 2).
     uptime_retry_delay_seconds: float = 30.0
+    # Checks refuse private and loopback addresses (checks/http.py). Only the
+    # tests and the local demo, whose fake site is on 127.0.0.1, turn this on.
+    allow_private_addresses: bool = False
 
     # API and dashboard. Both credentials are required for the API to start:
     # in production they are read from SSM Parameter Store.

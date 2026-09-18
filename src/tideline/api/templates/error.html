@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="theme-color" content="#0b1826">
+  <title>{{ title }} · Tideline</title>
+  <link rel="icon" type="image/svg+xml" href="/static/favicon-none.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="/static/tideline.css?v={{ assets }}">
+</head>
+<body class="signin-page">
+<main class="signin">
+  <p class="wordmark">Tideline<span class="p-{{ 'down' if status >= 500 else 'warn' }}">.</span></p>
+  <p class="eyebrow" style="color: var(--slate); margin: 6px 0 0;">Error {{ status }}</p>
+  <h1>{{ title }}</h1>
+  <p style="margin: 0; color: var(--ink-2);">{{ text }}</p>
+  <a class="btn btn-deep" href="/" style="margin-top: 16px;">Back to the overview</a>
+  <p class="signin-foot">Tideline by OBdesign</p>
+</main>
+</body>
+</html>

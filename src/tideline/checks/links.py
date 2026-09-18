@@ -16,9 +16,7 @@ Politeness, because this crawls real client sites:
 - the honest Tideline user agent, as everywhere else.
 """
 
-import re
 from collections import deque
-from html import unescape
 from typing import Any
 from urllib.parse import urldefrag, urljoin, urlparse
 
@@ -26,6 +24,8 @@ import httpx
 
 from tideline.brand import short_url
 from tideline.checks.base import Clients, Config, Result
+from tideline.checks.html_scan import scan
+from tideline.checks.http import status_only
 
 # What counts as broken.
 #
@@ -43,8 +43,10 @@ MAX_PAGES = 25
 MAX_DEPTH = 2
 PAUSE_SECONDS = 0.2
 LINK_TIMEOUT = 10.0
+# At most this many links are checked per site. The busiest real site has 70;
+# a page stuffed with thousands of links (a hacked one) must not stall the run.
+MAX_LINKS = 300
 
-HREF = re.compile(r"""<a\b[^>]*?\bhref\s*=\s*["']([^"'>]+)["']""", re.IGNORECASE)
 # Links that are not fetchable pages.
 SKIP_SCHEMES = ("mailto:", "tel:", "javascript:", "data:", "sms:", "#")
 
@@ -52,8 +54,8 @@ SKIP_SCHEMES = ("mailto:", "tel:", "javascript:", "data:", "sms:", "#")
 def extract_links(html: str, base_url: str) -> list[str]:
     """Absolute, fragment-free URLs from the anchors in a page."""
     links = []
-    for raw in HREF.findall(html):
-        href = unescape(raw.strip())
+    for anchor in scan(html).anchors:
+        href = anchor.href
         if not href or href.lower().startswith(SKIP_SCHEMES):
             continue
         absolute, _ = urldefrag(urljoin(base_url, href))
@@ -80,18 +82,19 @@ async def _status_of(client: httpx.AsyncClient, url: str) -> tuple[int | None, s
     a real GET before it counts.
     """
     try:
-        response = await client.head(url, follow_redirects=True, timeout=LINK_TIMEOUT)
-    except httpx.HTTPError:
-        response = None
+        status = await status_only(client, "HEAD", url, LINK_TIMEOUT)
+    except (httpx.HTTPError, TimeoutError):
+        status = None
 
-    if response is not None and response.status_code < 400:
-        return response.status_code, None
+    if status is not None and status < 400:
+        return status, None
 
     try:
-        confirm = await client.get(url, follow_redirects=True, timeout=LINK_TIMEOUT)
+        return await status_only(client, "GET", url, LINK_TIMEOUT), None
+    except TimeoutError:
+        return None, f"no answer within {LINK_TIMEOUT:g} s"
     except httpx.HTTPError as exc:
         return None, f"{type(exc).__name__}: {exc}"[:200]
-    return confirm.status_code, None
 
 
 def describe_broken(broken: list[dict[str, Any]], host: str, internal: bool) -> str:
@@ -141,6 +144,8 @@ async def run(config: Config, clients: Clients) -> Result | None:
 
         for link in extract_links(body, page_url):
             internal = same_host(link, host)
+            if link not in checked and len(checked) >= MAX_LINKS:
+                continue  # enough: a page stuffed with links must not stall the run
             if link not in checked:
                 await clients.sleep(PAUSE_SECONDS)
                 checked[link] = await _status_of(clients.http, link)

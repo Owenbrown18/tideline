@@ -64,7 +64,7 @@
           <td class="num hide-sm {{ 'soon' if r.domain_days is not none and r.domain_days < 30 }}">{{ r.domain_days ~ ' d' if r.domain_days is not none else '–' }}</td>
         </tr>
       {% else %}
-        <tr><td colspan="7" class="quiet">No sites yet. Add them to sites.yaml and seed.</td></tr>
+        <tr><td colspan="7" class="quiet">No sites yet. Add them to the site list (docs/runbook.md, "Change the site list"); they are checked at the next run.</td></tr>
       {% endfor %}
       </tbody>
     </table>

@@ -5,11 +5,10 @@ Run it locally with `tideline api`. In production it runs on AWS Lambda
 status.obwebdesign.ca over HTTPS.
 """
 
-import asyncio
 import hashlib
 import logging
 import re
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
@@ -17,11 +16,13 @@ from typing import Annotated, Any
 from urllib.parse import parse_qs, urlparse
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request, status
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.exception_handlers import http_exception_handler
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from tideline import __version__, brand
 from tideline.api import queries, views
@@ -63,6 +64,75 @@ ASSETS = hashlib.sha256(
     b"".join((HERE / "static" / name).read_bytes() for name in ("tideline.css", "tideline.js"))
 ).hexdigest()[:10]
 TEMPLATES.env.globals["assets"] = ASSETS
+
+MONTH = re.compile(r"(\d{4})-(\d{2})")
+
+# Sent with every response (security review, 2026-09-18). The page's own styles
+# use inline style attributes, so styles allow 'unsafe-inline'; scripts do not.
+SECURITY_HEADERS = {
+    "Content-Security-Policy": (
+        "default-src 'self'; script-src 'self'; "
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+        "font-src https://fonts.gstatic.com; img-src 'self' data:; "
+        "frame-ancestors 'self'; form-action 'self'; base-uri 'none'; object-src 'none'"
+    ),
+    "Strict-Transport-Security": "max-age=31536000",
+    "X-Frame-Options": "SAMEORIGIN",  # the report dialog frames this site's own pages
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "same-origin",
+}
+
+
+async def security_headers(
+    request: Request, call_next: Callable[[Request], Awaitable[Response]]
+) -> Response:
+    response = await call_next(request)
+    response.headers.update(SECURITY_HEADERS)
+    if not request.url.path.startswith("/static/"):
+        # Signed-in pages must not stay in the browser's cache after signing out.
+        response.headers.setdefault("Cache-Control", "no-store")
+    return response
+
+
+def _wants_html(request: Request) -> bool:
+    return "text/html" in request.headers.get("accept", "")
+
+
+ERROR_WORDS = {
+    404: ("Nothing here", "That page does not exist, or the site it was about has been removed."),
+    422: ("That address is not quite right", "Check the link: a month looks like 2026-09."),
+    409: ("Try that again", "A check run finished at the same moment. Reload and press it again."),
+    403: ("Not allowed from there", "That button only works from Tideline's own pages."),
+}
+
+
+async def error_page(request: Request, exc: StarletteHTTPException) -> Response:
+    """Errors as a page for a person, as JSON for a script."""
+    if not _wants_html(request) or exc.status_code in (303, 401):
+        return await http_exception_handler(request, exc)
+    title, text = ERROR_WORDS.get(exc.status_code, ("Something went wrong", str(exc.detail)))
+    return TEMPLATES.TemplateResponse(
+        request,
+        "error.html",
+        {"title": title, "text": text, "status": exc.status_code},
+        status_code=exc.status_code,
+    )
+
+
+async def server_error_page(request: Request, exc: Exception) -> Response:
+    log.exception("unhandled_error", extra={"path": request.url.path})
+    if not _wants_html(request):
+        return JSONResponse({"detail": "server error"}, status_code=500)
+    return TEMPLATES.TemplateResponse(
+        request,
+        "error.html",
+        {
+            "title": "Something went wrong",
+            "text": "Tideline hit an error showing this page. It has been logged.",
+            "status": 500,
+        },
+        status_code=500,
+    )
 
 
 @asynccontextmanager
@@ -270,12 +340,9 @@ async def dashboard_report(
     `?download=1` sends it as a file, named for the client and the month, to
     attach to an email or keep.
     """
-    try:
-        year_text, month_text = month.split("-")
-        year, month_number = int(year_text), int(month_text)
-        if not 1 <= month_number <= 12:
-            raise ValueError
-    except ValueError:
+    match = MONTH.fullmatch(month)
+    year, month_number = (int(match[1]), int(match[2])) if match else (0, 0)
+    if not (2000 <= year <= 2999 and 1 <= month_number <= 12):
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_CONTENT, detail="month must look like 2026-09"
         ) from None
@@ -309,11 +376,13 @@ async def login_page(request: Request, next: str = "/") -> HTMLResponse:
 @signin.post("/login", response_model=None)
 async def login(request: Request) -> Response:
     # Parsed by hand: a form this small does not need another dependency.
-    fields = {k: v[0] for k, v in parse_qs((await request.body()).decode()).items()}
+    body = (await request.body()).decode(errors="replace")
+    fields = {k: v[0] for k, v in parse_qs(body).items()}
     settings: Settings = request.app.state.settings
     target = safe_next(fields.get("next"))
     if not valid_login(settings, fields.get("username", ""), fields.get("password", "")):
-        await asyncio.sleep(1)  # a wrong guess costs a second, so guessing is slow
+        # No deliberate delay: the password is 40 random characters, so guessing
+        # is hopeless anyway, and on Lambda a delay only adds to the bill.
         return TEMPLATES.TemplateResponse(
             request,
             "login.html",
@@ -331,13 +400,15 @@ async def login(request: Request) -> Response:
         make_session(settings),
         max_age=SESSION_SECONDS,
         httponly=True,  # page scripts cannot read it
-        secure=request.url.scheme == "https",
+        # Secure whenever the dashboard lives on HTTPS (production always does);
+        # only a laptop running `tideline api` over plain HTTP goes without.
+        secure=request.url.scheme == "https" or settings.public_url.startswith("https://"),
         samesite="lax",  # not sent on a form another site submits
     )
     return response
 
 
-@signin.get("/logout")
+@signin.post("/logout")
 async def logout() -> RedirectResponse:
     response = RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
     response.delete_cookie(SESSION_COOKIE)
@@ -358,7 +429,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         version=__version__,
         summary="Monitoring for the websites OBdesign runs. Tideline by OBdesign.",
         lifespan=lifespan,
+        # No public /docs, /redoc or /openapi.json: they listed every route and
+        # loaded third-party JavaScript on this domain (security review).
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
     )
+    app.middleware("http")(security_headers)
+    app.add_exception_handler(StarletteHTTPException, error_page)  # type: ignore[arg-type]
+    app.add_exception_handler(Exception, server_error_page)
     app.state.settings = settings
     zone = settings.display_timezone
     TEMPLATES.env.filters["local"] = lambda when, fmt: brand.local(when, fmt, zone)

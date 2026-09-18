@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import Row, func, select, true
+from sqlalchemy import func, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -80,9 +80,10 @@ class LatestResult:
 
 
 async def _latest_results(
-    session: AsyncSession, site_id: int | None = None
+    session: AsyncSession, site_id: int | None = None, before: datetime | None = None
 ) -> dict[int, LatestResult]:
-    """The newest result per check, as {check_id: result}.
+    """The newest result per check, as {check_id: result}; only results earlier
+    than `before`, if given (a monthly report describes its own month).
 
     A window function numbers each check's results newest first, and the
     outer query keeps number 1. It uses the (check_id, started_at) index.
@@ -98,6 +99,8 @@ async def _latest_results(
     ranked = select(CheckResult, newest_first).join(Check, Check.id == CheckResult.check_id)
     if site_id is not None:
         ranked = ranked.where(Check.site_id == site_id)
+    if before is not None:
+        ranked = ranked.where(CheckResult.started_at < before)
     inner = ranked.subquery()
     newest = aliased(CheckResult, inner)
     rows = (await session.scalars(select(newest).where(inner.c.n == 1))).all()
@@ -107,10 +110,14 @@ async def _latest_results(
     }
 
 
-async def site_statuses(session: AsyncSession, site_id: int | None = None) -> list[SiteStatus]:
+async def site_statuses(
+    session: AsyncSession, site_id: int | None = None, before: datetime | None = None
+) -> list[SiteStatus]:
     sites = list(
         await session.scalars(
-            select(Site).where(Site.id == site_id if site_id else true()).order_by(Site.name)
+            select(Site)
+            .where(Site.id == site_id if site_id is not None else true())
+            .order_by(Site.name)
         )
     )
     if not sites:
@@ -122,7 +129,18 @@ async def site_statuses(session: AsyncSession, site_id: int | None = None) -> li
             .order_by(Check.kind, Check.key)
         )
     )
-    latest = await _latest_results(session, site_id)
+    latest = await _latest_results(session, site_id, before)
+    # An open incident outranks a passing result: a DNS change waiting to be
+    # accepted is still open after the records go back, and must not read "fine".
+    open_by_check: dict[int, Incident] = {
+        incident.check_id: incident
+        for incident in await session.scalars(
+            select(Incident).where(
+                Incident.resolved_at.is_(None),
+                Incident.check_id.in_([c.id for c in checks]),
+            )
+        )
+    }
     open_counts: dict[int, int] = {
         row.site_id: row.open_count
         for row in (
@@ -140,6 +158,12 @@ async def site_statuses(session: AsyncSession, site_id: int | None = None) -> li
         site_checks = []
         for check in (c for c in checks if c.site_id == site.id):
             row = latest.get(check.id)
+            status = row.status if row else None
+            summary = row.summary if row else None
+            incident = open_by_check.get(check.id) if before is None else None
+            if incident is not None and status == "ok":
+                status = "fail" if incident.severity == "critical" else "warn"
+                summary = incident.summary
             site_checks.append(
                 CheckStatus(
                     check_id=check.id,
@@ -147,8 +171,8 @@ async def site_statuses(session: AsyncSession, site_id: int | None = None) -> li
                     key=check.key,
                     enabled=check.enabled,
                     interval_seconds=check.interval_seconds,
-                    status=row.status if row else None,
-                    summary=row.summary if row else None,
+                    status=status,
+                    summary=summary,
                     last_checked_at=row.started_at if row else None,
                     duration_ms=row.duration_ms if row else None,
                     detail=row.detail if row else None,
@@ -318,40 +342,3 @@ async def resolve_dns_incidents(session: AsyncSession, site_id: int, now: dateti
         incident.resolved_at = now
         incident.summary = f"{incident.summary} (accepted as the new baseline)"
     return len(open_dns)
-
-
-async def recent_rollups(session: AsyncSession, site_id: int, days: int = 30) -> list[Any]:
-    """The last `days` daily rollups for a site, newest first.
-
-    Read from `daily_rollups`, so the 30-day view still works after raw results
-    older than 90 days have been purged.
-    """
-    from tideline.db.models import DailyRollup
-
-    since = (datetime.now(UTC) - timedelta(days=days)).date()
-    return list(
-        await session.scalars(
-            select(DailyRollup)
-            .where(DailyRollup.site_id == site_id, DailyRollup.day >= since)
-            .order_by(DailyRollup.day.desc())
-        )
-    )
-
-
-async def recent_results(session: AsyncSession, site_id: int, limit: int = 50) -> list[Row[Any]]:
-    return list(
-        await session.execute(
-            select(
-                Check.kind,
-                Check.key,
-                CheckResult.status,
-                CheckResult.started_at,
-                CheckResult.duration_ms,
-                CheckResult.detail,
-            )
-            .join(Check, Check.id == CheckResult.check_id)
-            .where(Check.site_id == site_id)
-            .order_by(CheckResult.started_at.desc(), CheckResult.id.desc())
-            .limit(limit)
-        )
-    )

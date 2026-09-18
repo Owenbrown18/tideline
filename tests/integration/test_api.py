@@ -211,10 +211,10 @@ async def test_unknown_site_is_404(client):
     assert (await client.get("/sites/9999/uptime", headers=auth())).status_code == 404
 
 
-async def test_openapi_documents_the_endpoints(client):
-    paths = (await client.get("/openapi.json")).json()["paths"]
-    assert "/sites/{site_id}/uptime" in paths
-    assert "/" not in paths  # the dashboard stays out of the API docs
+async def test_no_public_api_docs(client):
+    # They listed every route and loaded third-party JavaScript (security review).
+    for path in ("/docs", "/redoc", "/openapi.json"):
+        assert (await client.get(path)).status_code in (401, 404)
 
 
 # --- dashboard ----------------------------------------------------------------
@@ -334,7 +334,7 @@ async def test_a_browser_is_sent_to_the_sign_in_page_and_back(client, data):
     assert signed_in.status_code == 200
     assert "Sign out" in signed_in.text
 
-    out = await client.get("/logout")
+    out = await client.post("/logout")
     assert out.status_code == 303
     assert (await client.get("/", headers=HTML)).status_code == 303
 
@@ -386,3 +386,59 @@ async def test_every_page_shares_the_hero_and_the_script(client, data):
 async def test_site_rows_open_their_page(client, data):
     page = await client.get("/", auth=DASH)
     assert f'<tr data-href="/sites/{data["site"]}/view">' in page.text
+
+
+# --- hardening (security and correctness reviews, 2026-09-18) ----------------------
+
+
+async def test_every_response_carries_the_security_headers(client, data):
+    for path, auth in (("/", DASH), ("/login", None), ("/healthz", None)):
+        response = await client.get(path, auth=auth)
+        assert "frame-ancestors 'self'" in response.headers["content-security-policy"]
+        assert response.headers["x-frame-options"] == "SAMEORIGIN"
+        assert response.headers["x-content-type-options"] == "nosniff"
+        assert response.headers["strict-transport-security"].startswith("max-age=")
+    page = await client.get("/", auth=DASH)
+    assert page.headers["cache-control"] == "no-store"
+
+
+async def test_errors_are_pages_for_people_and_json_for_scripts(client, data):
+    page = await client.get("/sites/9999/view", auth=DASH, headers={"accept": "text/html"})
+    assert page.status_code == 404
+    assert "Nothing here" in page.text
+    assert "Back to the overview" in page.text
+    script = await client.get("/sites/9999", headers=auth())
+    assert script.status_code == 404
+    assert script.json()["detail"]
+
+
+@pytest.mark.parametrize(
+    "month", ["2026-9", "+2026-09", "0000-01", "10000-01", "9999-12", "2026-00", "2026-13"]
+)
+async def test_odd_report_months_are_refused_not_crashed(client, data, month):
+    response = await client.get(f"/reports/{data['site']}/{month}", auth=DASH)
+    assert response.status_code in (404, 422)
+
+
+async def test_site_zero_is_not_found(client, data):
+    assert (await client.get("/sites/0", headers=auth())).status_code == 404
+    assert (await client.get("/sites/0/view", auth=DASH)).status_code == 404
+
+
+async def test_any_characters_in_a_login_are_refused_not_crashed(client):
+    wrong = await client.post("/login", data={"username": "owen", "password": "pässwörd"})
+    assert wrong.status_code == 401
+    bad_bytes = await client.post(
+        "/login",
+        content=b"username=owen&password=\xff\xfe",
+        headers={"content-type": "application/x-www-form-urlencoded"},
+    )
+    assert bad_bytes.status_code == 401
+    token = {"Authorization": "Bearer dév".encode()}  # raw bytes, as any client could send
+    assert (await client.get("/sites", headers=token)).status_code == 401
+    cookie = {"Cookie": "tideline_session=1.é".encode(), "Accept": b"text/html"}
+    assert (await client.get("/", headers=cookie)).status_code == 303
+
+
+async def test_sign_out_is_a_post(client):
+    assert (await client.get("/logout")).status_code in (404, 405)

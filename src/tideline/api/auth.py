@@ -36,6 +36,17 @@ from fastapi.security import (
 
 from tideline.config import Settings
 
+
+def same(given: str, expected: str) -> bool:
+    """Constant-time comparison that also accepts any characters.
+
+    `secrets.compare_digest` raises on non-ASCII text, which turned a password
+    with an accent in it into a server error (found by review, 2026-09-18).
+    Comparing the UTF-8 bytes has neither problem.
+    """
+    return secrets.compare_digest(given.encode(), expected.encode())
+
+
 bearer_scheme = HTTPBearer(auto_error=False, description="TIDELINE_API_TOKEN")
 basic_scheme = HTTPBasic(auto_error=False, realm="Tideline")
 
@@ -51,7 +62,7 @@ BasicCredentials = Annotated[HTTPBasicCredentials | None, Depends(basic_scheme)]
 
 async def require_api_token(request: Request, credentials: BearerCredentials) -> None:
     expected = _settings(request).api_token
-    if not credentials or not secrets.compare_digest(credentials.credentials, expected):
+    if not credentials or not same(credentials.credentials, expected):
         raise HTTPException(
             status.HTTP_401_UNAUTHORIZED,
             detail="a bearer token is required",
@@ -81,15 +92,15 @@ def valid_session(settings: Settings, value: str | None, now: float | None = Non
     if not value or "." not in value:
         return False
     expires, signature = value.split(".", 1)
-    if not secrets.compare_digest(signature, _sign(settings, expires)):
+    if not same(signature, _sign(settings, expires)):
         return False
     return expires.isdigit() and int(expires) > (now or time.time())
 
 
 def valid_login(settings: Settings, username: str, password: str) -> bool:
     # Both compared every time, so a wrong username takes as long as a wrong password.
-    user_ok = secrets.compare_digest(username, settings.dashboard_user)
-    password_ok = secrets.compare_digest(password, settings.dashboard_password)
+    user_ok = same(username, settings.dashboard_user)
+    password_ok = same(password, settings.dashboard_password)
     return user_ok and password_ok
 
 

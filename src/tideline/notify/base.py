@@ -37,6 +37,8 @@ class AlertMessage:
     resolved_at: datetime | None = None
     # For the "Open in Tideline" link; None leaves the link out.
     site_id: int | None = None
+    # The incident this alert is about, so it can be recorded once it has been sent.
+    incident_id: int | None = None
 
     @property
     def duration(self) -> timedelta | None:
@@ -115,7 +117,7 @@ def describe(msg: AlertMessage, zone: str = "", base_url: str | None = None) -> 
     footer = {
         "open": "You'll get one more email when this is fixed.",
         "escalated": "This has been failing long enough to count as critical.",
-        "reminder": "Tideline reminds you once a day while this stays open.",
+        "reminder": "It is listed in every check's summary while it stays open.",
         "resolved": "Nothing more to do.",
     }[msg.kind] + " Alerts go to Owen only; Tideline never emails a client."
 

@@ -44,7 +44,7 @@ class Cell:
 
 _CELL_WORDS: dict[brand.Tone, str] = {
     "up": "up",
-    "warn": "down at the first try, up at the retry",
+    "warn": "down at one of the checks that day",
     "down": "down",
     "none": "not checked",
 }
@@ -68,7 +68,9 @@ async def strips(session: AsyncSession, site_ids: list[int]) -> dict[int, list[C
     by_site: dict[int, list[DailyRollup]] = {site_id: [] for site_id in site_ids}
     for rollup in await session.scalars(
         select(DailyRollup)
-        .where(DailyRollup.site_id.in_(site_ids))
+        # A day with no uptime result was a narrowed re-run (one kind of check),
+        # not a run of its own, so it is not a cell.
+        .where(DailyRollup.site_id.in_(site_ids), DailyRollup.uptime_checks > 0)
         .order_by(DailyRollup.day.desc())
     ):
         runs = by_site[rollup.site_id]
@@ -163,7 +165,12 @@ RESPONSE_DAYS = 90
 
 async def overview(session: AsyncSession, zone: str = "America/Vancouver") -> Overview:
     sites = [s for s in await queries.site_statuses(session) if s.active]
-    open_incidents = await queries.incidents(session, open_only=True, limit=500)
+    active_ids = {s.id for s in sites}
+    open_incidents = [
+        i
+        for i in await queries.incidents(session, open_only=True, limit=500)
+        if i.site_id in active_ids
+    ]
     site_ids = [s.id for s in sites]
     cells = await strips(session, site_ids) if site_ids else {}
 
@@ -214,6 +221,12 @@ async def overview(session: AsyncSession, zone: str = "America/Vancouver") -> Ov
     warn_sites = [r for r in rows if r.tone == "warn"]
     waiting = bool(rows) and all(r.tone == "none" for r in rows)
     head = brand.headline(len(rows), down_sites, len(warnings), waiting=waiting)
+    upcoming = next_run(datetime.now(UTC), zone)
+    if head.tone == "none":
+        # Say exactly when, rather than "soon".
+        head = brand.Headline(
+            head.text, head.tone, f"The first check runs on {brand.human_date(upcoming)}."
+        )
     return Overview(
         headline=head,
         rows=rows,
@@ -221,7 +234,7 @@ async def overview(session: AsyncSession, zone: str = "America/Vancouver") -> Ov
         warnings=warnings,
         total_sites=len(rows),
         total_checks=total_checks,
-        next_run=next_run(datetime.now(UTC), zone),
+        next_run=upcoming,
         last_checked_at=last_checked,
         state=head.tone,
         down_count=len(down_sites),

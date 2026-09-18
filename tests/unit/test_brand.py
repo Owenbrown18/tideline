@@ -28,7 +28,12 @@ from tideline import brand
             "down",
             "A, B and C. The other 2 are up.",
         ),
-        ((0, [], 0), "Waiting for the first checks", "none", "Results appear within a minute."),
+        (
+            (0, [], 0),
+            "Waiting for the first checks",
+            "none",
+            "Every site is checked on the 1st and 15th.",
+        ),
     ],
 )
 def test_headline(args, text, tone, detail):

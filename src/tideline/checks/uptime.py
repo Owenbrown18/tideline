@@ -1,8 +1,8 @@
 """Check 1: is the page up, and how fast is it?
 
 One failure is retried once after a pause (30 s in production) before it counts,
-so a single dropped packet never becomes a result of "fail". Opening an
-incident needs 2 failed results in a row on top of that (see incidents/engine.py).
+so a single dropped packet never becomes a result of "fail". A failed result
+opens an incident straight away (runs are two weeks apart; incidents/engine.py).
 """
 
 from typing import Any

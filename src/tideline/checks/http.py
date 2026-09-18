@@ -7,6 +7,7 @@ other reuses it. The uptime retry asks for `fresh=True` to bypass that memory.
 """
 
 import asyncio
+import ipaddress
 import time
 from dataclasses import dataclass
 
@@ -101,3 +102,50 @@ class PageFetcher:
             self._entries[url] = (now, task)
             entry = self._entries[url]
         return await asyncio.shield(entry[1])
+
+
+async def status_only(
+    client: httpx.AsyncClient, method: str, url: str, deadline: float = 15.0
+) -> int:
+    """The status of a request, without downloading the body.
+
+    Link and form probes only need the answer's status. Streaming and closing
+    straight away means a multi-gigabyte file, a compression bomb or a server
+    that dribbles one byte at a time costs nothing. `deadline` bounds the whole
+    exchange, redirects included (httpx's own timeouts apply per step).
+    """
+    async with asyncio.timeout(deadline):
+        async with client.stream(method, url, follow_redirects=True) as response:
+            return response.status_code
+
+
+async def refuse_private_addresses(request: httpx.Request) -> None:
+    """An httpx request hook: only public addresses may be checked.
+
+    Checks follow links, form actions and redirects chosen by the client's own
+    pages, and a hacked page could point them at the Lambda's internal network
+    (a security review found this, 2026-09-18). The hook runs before every
+    request, redirects included, and refuses any host that resolves to a
+    private, loopback, link-local or otherwise non-public address.
+    """
+    host = request.url.host
+    try:
+        addresses = [ipaddress.ip_address(host)]
+    except ValueError:
+        try:
+            infos = await asyncio.get_running_loop().getaddrinfo(host, request.url.port or 443)
+        except OSError:
+            return  # cannot resolve: let the request fail on its own, as it would
+        addresses = [ipaddress.ip_address(info[4][0]) for info in infos]
+    for address in addresses:
+        if not address.is_global:
+            raise httpx.ConnectError(
+                f"{host} is a private address ({address}); only public sites are checked",
+                request=request,
+            )
+
+
+def make_client(user_agent: str, allow_private_addresses: bool = False) -> httpx.AsyncClient:
+    """The HTTP client every check uses in a real run."""
+    hooks = {} if allow_private_addresses else {"request": [refuse_private_addresses]}
+    return httpx.AsyncClient(headers={"User-Agent": user_agent}, timeout=10.0, event_hooks=hooks)

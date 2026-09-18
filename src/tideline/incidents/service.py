@@ -116,6 +116,7 @@ async def process_result(
         opened_at=incident.opened_at,
         resolved_at=incident.resolved_at,
         site_id=check.site.id,
+        incident_id=incident.id,
     )
     try:
         await notifier.send(message)
@@ -125,6 +126,11 @@ async def process_result(
         log.exception("alert_send_failed", extra={"incident_id": incident.id, "alert_kind": kind})
         return decision
 
+    if getattr(notifier, "records_later", False):
+        # The run's digest only collects alerts here. It records them (the alert
+        # row, last_alerted_at) after its email has actually gone out, so an
+        # email that fails is not written down as sent (notify/digest.py).
+        return decision
     incident.last_alerted_at = now
     session.add(Alert(incident_id=incident.id, channel=notifier.channel, sent_at=now, kind=kind))
     return decision

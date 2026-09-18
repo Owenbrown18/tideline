@@ -10,8 +10,15 @@ REGION=${AWS_REGION:-ca-central-1}
 SITES_FILE=${1:-sites.yaml}
 
 put() {
-  aws ssm put-parameter --name "$1" --value "$2" --type SecureString \
+  # The value goes through a private temporary file, not the command line,
+  # where other processes on the laptop could briefly see it (`ps`).
+  local file
+  file=$(mktemp)
+  chmod 600 "$file"
+  printf '%s' "$2" > "$file"
+  aws ssm put-parameter --name "$1" --value "file://$file" --type SecureString \
     --overwrite --region "$REGION" >/dev/null
+  rm -f "$file"
   echo "wrote $1"
 }
 

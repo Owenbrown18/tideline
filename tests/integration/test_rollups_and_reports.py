@@ -254,7 +254,19 @@ async def test_one_failed_report_does_not_stop_the_rest(sessionmaker, site_with_
     from tideline.reports.monthly import send_month
 
     async with sessionmaker() as session, session.begin():
-        session.add(Site(name="Second", domain="second.ca", urls=["https://second.ca/"]))
+        second = Site(name="Second", domain="second.ca", urls=["https://second.ca/"])
+        session.add(second)
+        await session.flush()
+        check = Check(site_id=second.id, kind="uptime", key="u2", interval_seconds=300, config={})
+        session.add(check)
+        await session.flush()
+        session.add(
+            CheckResult(
+                check_id=check.id, started_at=DAY_START, duration_ms=1, status="ok", detail={}
+            )
+        )
+        await session.flush()
+        await rollup_day(session, DAY)
 
     notifier = RecordingNotifier()
     notifier.fail_next = 1
@@ -315,3 +327,67 @@ async def test_reports_open_in_the_dialog(client, site_with_a_day, sessionmaker)
     assert 'data-report="Daves&#39; Bakery, September 2026"' in page.text
     assert 'id="report-dialog"' in page.text
     assert "Next report" in page.text
+
+
+async def test_a_narrowed_rerun_is_not_a_cell_on_the_strip(client, sessionmaker, site_with_a_day):
+    from tideline.api.views import strips
+
+    async with sessionmaker() as session, session.begin():
+        await rollup_day(session, DAY)
+        # A day with only a TLS result: a re-run of one kind of check.
+        tls = await session.scalar(select(Check).where(Check.kind == "tls"))
+        session.add(
+            CheckResult(
+                check_id=tls.id,
+                started_at=DAY_START + timedelta(days=2),
+                duration_ms=1,
+                status="ok",
+                detail={},
+            )
+        )
+        await session.flush()
+        await rollup_day(session, DAY + timedelta(days=2))
+    async with sessionmaker() as session:
+        cells = (await strips(session, [site_with_a_day["site"]]))[site_with_a_day["site"]]
+    assert [c.day for c in cells if c.day is not None] == [DAY]
+
+
+async def test_an_open_incident_outranks_a_passing_result(sessionmaker, site_with_a_day):
+    """A DNS change waiting to be accepted must not read "fine" (found by review)."""
+    from tideline.api.queries import site_statuses
+
+    async with sessionmaker() as session, session.begin():
+        tls = await session.scalar(select(Check).where(Check.kind == "tls"))
+        session.add(
+            Incident(
+                check_id=tls.id,
+                opened_at=DAY_START,
+                severity="critical",
+                summary="Waiting for Owen",
+            )
+        )
+    async with sessionmaker() as session:
+        [site] = await site_statuses(session)
+    [card] = [c for c in site.checks if c.kind == "tls"]
+    assert (card.status, card.summary) == ("fail", "Waiting for Owen")
+    assert site.status == "fail"
+
+
+async def test_a_report_describes_its_own_month(sessionmaker, site_with_a_day):
+    """Evidence from the month's last result, not today's (found by review)."""
+    async with sessionmaker() as session, session.begin():
+        await rollup_day(session, DAY)
+        tls = await session.scalar(select(Check).where(Check.kind == "tls"))
+        session.add(
+            CheckResult(
+                check_id=tls.id,
+                started_at=datetime(2026, 10, 2, tzinfo=UTC),
+                duration_ms=1,
+                status="fail",
+                detail={"summary": "Certificate expired"},
+            )
+        )
+    async with sessionmaker() as session:
+        report = await build_report(session, site_with_a_day["site"], 2026, 9)
+    tls_line = next(w for w in report.watched if "certificate" in w.text)
+    assert tls_line.tone == "up"  # in September it was fine

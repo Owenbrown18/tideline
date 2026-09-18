@@ -15,7 +15,6 @@ and the like answer those without recording a submission. A form posting to the
 site's own API route is treated the same way.
 """
 
-import re
 from typing import Any
 from urllib.parse import urljoin, urlparse
 
@@ -23,6 +22,8 @@ import httpx
 
 from tideline.brand import short_url
 from tideline.checks.base import Clients, Config, Result
+from tideline.checks.html_scan import scan
+from tideline.checks.http import status_only
 
 FORM_TIMEOUT = 10.0
 
@@ -46,19 +47,14 @@ def contact_page_candidates(html: str, base_url: str) -> list[str]:
     check now follows the site's own navigation instead.
     """
     host = urlparse(base_url).netloc
-    anchors = re.findall(
-        r"""<a\b[^>]*?\bhref\s*=\s*["']([^"']+)["'][^>]*>(.*?)</a>""",
-        html,
-        re.IGNORECASE | re.DOTALL,
-    )
     by_path: list[str] = []
     by_text: list[str] = []
-    for href, text in anchors:
-        absolute = urljoin(base_url, href.strip())
+    for anchor in scan(html).anchors:
+        absolute = urljoin(base_url, anchor.href)
         if urlparse(absolute).netloc != host:
             continue
         path = urlparse(absolute).path.rstrip("/").lower() or "/"
-        words = re.sub(r"<[^>]+>", " ", text).strip().lower()
+        words = " ".join(anchor.text.split()).lower()
         if any(path.endswith(candidate) for candidate in CONTACT_PATHS):
             by_path.append(absolute.split("#")[0])
         elif any(word in words for word in CONTACT_WORDS):
@@ -69,32 +65,15 @@ def contact_page_candidates(html: str, base_url: str) -> list[str]:
 
 def find_forms(html: str) -> list[dict[str, Any]]:
     """Every <form> in the page, with its action, method and field names."""
-    forms = []
-    for match in re.finditer(r"<form\b(.*?)>(.*?)</form>", html, re.IGNORECASE | re.DOTALL):
-        attributes, body = match.group(1), match.group(2)
-
-        def attribute(name: str, text: str = attributes) -> str:
-            found = re.search(rf"""\b{name}\s*=\s*["']([^"']*)["']""", text, re.IGNORECASE)
-            return found.group(1).strip() if found else ""
-
-        fields = [
-            f
-            for f in re.findall(
-                r"""<(?:input|textarea|select)\b[^>]*?\bname\s*=\s*["']([^"']+)["']""",
-                body,
-                re.IGNORECASE,
-            )
-        ]
-        has_textarea = bool(re.search(r"<textarea\b", body, re.IGNORECASE))
-        forms.append(
-            {
-                "action": attribute("action"),
-                "method": (attribute("method") or "get").lower(),
-                "fields": fields,
-                "has_textarea": has_textarea,
-            }
-        )
-    return forms
+    return [
+        {
+            "action": form.action,
+            "method": form.method,
+            "fields": form.fields,
+            "has_textarea": form.has_textarea,
+        }
+        for form in scan(html).forms
+    ]
 
 
 def looks_like_a_contact_form(form: dict[str, Any]) -> bool:
@@ -106,16 +85,16 @@ def looks_like_a_contact_form(form: dict[str, Any]) -> bool:
 
 
 async def probe_endpoint(client: httpx.AsyncClient, url: str) -> tuple[int | None, str | None]:
-    """Reach the endpoint without submitting anything."""
+    """Reach the endpoint without submitting anything, and without reading its body."""
     for method in ("OPTIONS", "HEAD", "GET"):
         try:
-            response = await client.request(
-                method, url, follow_redirects=True, timeout=FORM_TIMEOUT
-            )
+            status = await status_only(client, method, url, FORM_TIMEOUT)
+        except TimeoutError:
+            return None, f"no answer within {FORM_TIMEOUT:g} s"
         except httpx.HTTPError as exc:
             return None, f"{type(exc).__name__}: {exc}"[:200]
-        if response.status_code not in (405, 501):
-            return response.status_code, None
+        if status not in (405, 501):
+            return status, None
     return 405, None  # every method refused, but the host answered: the route exists
 
 
@@ -128,6 +107,10 @@ async def run(config: Config, clients: Clients) -> Result | None:
         # Told where the form is: a missing page there is a real failure.
         page = await clients.pages.fetch(configured)
         if page.error is not None:
+            return None
+        if page.status_code is not None and (page.status_code >= 500 or page.status_code == 429):
+            # The server is failing (or rate limiting), not the form: that is the
+            # uptime check's incident, so one outage stays one incident.
             return None
         if page.status_code is not None and page.status_code >= 400:
             return Result(

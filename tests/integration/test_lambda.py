@@ -58,6 +58,7 @@ def aws(monkeypatch, tmp_path, client_site) -> Iterator[None]:
         "TIDELINE_ALEMBIC_INI": str(REPO / "alembic.ini"),
         "TIDELINE_UPTIME_RETRY_DELAY_SECONDS": "0",
         "TIDELINE_NOTIFY_CHANNEL": "log",
+        "TIDELINE_ALLOW_PRIVATE_ADDRESSES": "true",  # the stand-in client site is local
     }
     for name, value in settings.items():
         monkeypatch.setenv(name, value)
@@ -167,4 +168,29 @@ def test_a_request_that_writes_is_saved_back_to_s3(aws):
 
     aws_lambda._web["handler"] = writes
     aws_lambda.web_handler(web_event("/", method="POST"), None)
+    assert s3.head_object(Bucket=BUCKET, Key="tideline.db")["ETag"] != before
+
+
+def test_a_run_whose_email_fails_saves_its_results_then_fails_loudly(aws, monkeypatch):
+    from tideline.notify.base import LogNotifier
+
+    async def broken(self, subject, text, html):
+        raise RuntimeError("SES is down")
+
+    aws_lambda.run_handler({}, None)  # a first, quiet run
+    monkeypatch.setattr(LogNotifier, "send_report", broken)
+    # Make the next run find something new: its content check now fails.
+    boto3.client("ssm", region_name=REGION).put_parameter(
+        Name=PREFIX + "sites_yaml",
+        Type="SecureString",
+        Overwrite=True,
+        Value=boto3.client("ssm", region_name=REGION)
+        .get_parameter(Name=PREFIX + "sites_yaml", WithDecryption=True)["Parameter"]["Value"]
+        .replace("expected_text: Lambda Bakery", "expected_text: Not On The Page"),
+    )
+    s3 = boto3.client("s3", region_name=REGION)
+    before = s3.head_object(Bucket=BUCKET, Key="tideline.db")["ETag"]
+    with pytest.raises(RuntimeError, match="did not all send"):
+        aws_lambda.run_handler({}, None)
+    # The results were saved before the email was tried.
     assert s3.head_object(Bucket=BUCKET, Key="tideline.db")["ETag"] != before

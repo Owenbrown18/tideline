@@ -106,7 +106,7 @@ Seed list, the 11 live sites (from `Career/Master Source.md`): davesbakery.ca, c
 - A check that cannot form an opinion (content on a page that did not load, RDAP rate-limited) records nothing, so one outage is one incident, not three.
 - An alert that fails to send is retried on the next run; `alerts` only holds alerts that actually went out.
 - Full reasoning: [docs/decisions/0003-incident-and-alert-rules.md](docs/decisions/0003-incident-and-alert-rules.md).
-- DNS drift incidents stay open until Owen accepts the new baseline (`POST /sites/{id}/dns-baseline/accept`, or the CLI).
+- DNS drift incidents stay open until Owen accepts the new baseline (the button on the site's page, or `POST /sites/{id}/dns-baseline/accept`).
 - **Tideline never emails a client.** Alerts and monthly reports go to Owen only; he decides what to forward. This matches the vault's standing rule that nothing contacts clients automatically.
 
 ### Data model

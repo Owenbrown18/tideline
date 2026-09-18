@@ -2,7 +2,7 @@
 
 Queries go to public resolvers (Cloudflare, then Google) rather than whatever
 the machine's resolver is, for two reasons: the answers are then the same from a
-laptop and from the EC2 instance, and an ISP resolver that filters or caches
+laptop and from AWS Lambda, and an ISP resolver that filters or caches
 badly cannot invent a DNS "change" that nobody else sees. The same lesson is
 written into OBdesign's leadgen classifier, where a single ISP NXDOMAIN nearly
 put "your domain no longer exists" into an email about a live domain.

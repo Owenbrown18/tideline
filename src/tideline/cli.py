@@ -5,6 +5,7 @@ tideline seed [sites.yaml]    load the site list into the database
 tideline run [--kind dns]     check every site once: what production does on the 1st and 15th
 tideline api                  run the API and dashboard (uvicorn)
 tideline check <domain> ...   run checks once and print the results (no database)
+tideline showcase --out x.db  six months of invented businesses, for photos and demos
 tideline rollup [--day]       summarise a day into daily_rollups, and purge old raw results
 tideline report --month 2026-09 [--site domain] [--email]   monthly report(s)
 """
@@ -17,10 +18,8 @@ import sys
 from dataclasses import asdict
 from pathlib import Path
 
-import httpx
-
 from tideline.checks import REGISTRY, Clients
-from tideline.checks.http import PageFetcher
+from tideline.checks.http import PageFetcher, make_client
 from tideline.config import get_settings
 from tideline.observability.logging import configure_logging
 
@@ -74,7 +73,7 @@ def cmd_run(args: argparse.Namespace) -> None:
 
 
 async def _rollup(day_text: str | None) -> None:
-    from datetime import UTC, date, datetime, timedelta
+    from datetime import UTC, date, datetime
 
     from tideline.db.session import make_engine, make_sessionmaker
     from tideline.reports.rollups import purge_old_results, rollup_day
@@ -82,11 +81,7 @@ async def _rollup(day_text: str | None) -> None:
     engine = make_engine(get_settings().database_url)
     try:
         async with make_sessionmaker(engine)() as session, session.begin():
-            day = (
-                date.fromisoformat(day_text)
-                if day_text
-                else (datetime.now(UTC) - timedelta(days=1)).date()
-            )
+            day = date.fromisoformat(day_text) if day_text else datetime.now(UTC).date()
             sites = await rollup_day(session, day)
             purged = await purge_old_results(session, datetime.now(UTC))
         print(
@@ -146,6 +141,13 @@ def cmd_report(args: argparse.Namespace) -> None:
     asyncio.run(_report(args.month, args.site, args.email, args.out_dir))
 
 
+def cmd_showcase(args: argparse.Namespace) -> None:
+    from tideline.showcase import build
+
+    subjects = build(Path(args.out))
+    print(json.dumps({"event": "showcase_built", "file": args.out, "emails": subjects}))
+
+
 def cmd_api(_: argparse.Namespace) -> None:
     from tideline.api.app import run
 
@@ -154,7 +156,7 @@ def cmd_api(_: argparse.Namespace) -> None:
 
 async def _check(args: argparse.Namespace) -> int:
     settings = get_settings()
-    async with httpx.AsyncClient(headers={"User-Agent": settings.user_agent}) as http:
+    async with make_client(settings.user_agent, settings.allow_private_addresses) as http:
         clients = Clients(
             http=http,
             pages=PageFetcher(http),
@@ -202,7 +204,7 @@ def main(argv: list[str] | None = None) -> None:
     p_run.set_defaults(func=cmd_run)
 
     p_rollup = sub.add_parser("rollup", help="summarise a day and purge old raw results")
-    p_rollup.add_argument("--day", help="YYYY-MM-DD (default: yesterday)")
+    p_rollup.add_argument("--day", help="YYYY-MM-DD (default: today)")
     p_rollup.set_defaults(func=cmd_rollup)
 
     p_report = sub.add_parser("report", help="monthly report per site")
@@ -211,6 +213,10 @@ def main(argv: list[str] | None = None) -> None:
     p_report.add_argument("--email", action="store_true", help="email it to Owen through SES")
     p_report.add_argument("--out-dir", help="write the HTML to this directory")
     p_report.set_defaults(func=cmd_report)
+
+    p_show = sub.add_parser("showcase", help="build a database of invented sites for demos")
+    p_show.add_argument("--out", default="showcase.db", help="file to create (must not exist)")
+    p_show.set_defaults(func=cmd_showcase)
 
     p_check = sub.add_parser("check", help="run checks once against a domain, no database")
     p_check.add_argument("domain")
