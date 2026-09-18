@@ -54,5 +54,5 @@ variable "demo_domain" {
 variable "use_demo_domain" {
   description = "Serve the demo on demo_domain. Needs its certificate issued (the validation record at the DNS host) first."
   type        = bool
-  default     = false
+  default     = true
 }
