@@ -1,88 +1,90 @@
 {% extends "base.html" %}
-{% block title %}{{ site.name }} · Sitewatch{% endblock %}
+{% import "_macros.html" as m %}
+{% block title %}{{ p.name }} · Tideline{% endblock %}
+
 {% block body %}
-  <h1><a href="/">Sitewatch</a> / {{ site.name }}</h1>
-  <p class="sub">
-    <a href="https://{{ site.domain }}/">{{ site.domain }}</a> ·
-    <span class="pill {{ site.status or 'none' }}">{{ site.status or 'no data' }}</span> ·
-    last 30 days:
-    {{ '%.2f%%' % uptime.uptime_percent if uptime.uptime_percent is not none else 'no data' }} uptime,
-    {{ uptime.incidents }} incident{{ '' if uptime.incidents == 1 else 's' }},
-    {{ uptime.downtime_seconds // 60 }} min down,
-    p50 {{ uptime.p50_ms or '-' }} ms / p95 {{ uptime.p95_ms or '-' }} ms
-  </p>
+<div style="display: flex; flex-direction: column; gap: 14px;">
+  <a class="crumb" href="/">Overview  /  {{ p.name }}</a>
+  <div class="site-head">
+    <div>
+      <h1>{{ p.headline }}<span class="p-{{ p.tone }}" style="color: {{ {'up': '#2f6fa6', 'warn': '#a8740f', 'down': '#c0432f', 'none': '#848d89'}[p.tone] }};">.</span></h1>
+      <div class="sub"><span class="mono">{{ p.domain }}</span>  ·  {{ p.subline }}</div>
+    </div>
+    <div class="actions">
+      <a class="btn" href="https://{{ p.domain }}/" rel="noopener">Visit site</a>
+      <a class="btn btn-deep" href="/reports/{{ p.id }}/{{ now|local('%Y-%m') }}">{{ now|local('%B') }} report</a>
+    </div>
+  </div>
+</div>
 
-  <h2>Checks</h2>
-  <table>
-    <tr><th>Check</th><th>Status</th><th>Last run</th><th>Every</th><th>Latest result</th></tr>
-    {% for check in site.checks %}
-      <tr>
-        <td>{{ check.kind }}{% if not check.enabled %} <span class="muted">(off)</span>{% endif %}</td>
-        <td><span class="pill {{ check.status or 'none' }}">{{ check.status or 'no data' }}</span></td>
-        <td class="muted">
-          {{ check.last_checked_at.strftime('%Y-%m-%d %H:%M') ~ ' UTC' if check.last_checked_at else '-' }}
-        </td>
-        <td class="muted">{{ check.interval_seconds }} s</td>
-        <td class="wrap">{{ check.summary or '-' }}</td>
-      </tr>
+<div class="site-grid">
+  <div style="display: flex; flex-direction: column; gap: 28px; min-width: 0;">
+    <section class="section" aria-labelledby="checks">
+      <h2 id="checks" class="label">Checks</h2>
+      <div class="checks">
+        {% for c in p.checks %}
+        <div class="panel check is-{{ c.tone }}">
+          <span class="check-name">{{ m.shape(c.tone) }}{{ c.name }}</span>
+          <span class="check-val">{{ c.summary }}</span>
+          <span class="check-when">Checked {{ m.ago(c.last_checked_at, now) }}</span>
+        </div>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section class="section" aria-labelledby="days">
+      <div class="section-head">
+        <h2 id="days" class="label">Last 30 days</h2>
+        <span class="muted" style="font-size: 13px;">{{ p.uptime.uptime_percent|percent ~ ' up' if p.uptime.uptime_percent is not none else 'No data yet' }}{% if p.uptime.p50_ms is not none %} · {{ p.uptime.p50_ms }} ms typical response{% endif %}</span>
+      </div>
+      <div class="panel" style="padding: 20px 22px; display: flex; flex-direction: column; gap: 10px;">
+        {{ m.strip(p.cells, p.strip_label, big=true) }}
+        <div class="strip-ends"><span class="mono">{{ p.cells[0].day.strftime('%-d %b') }}</span><span>Hollow days were before Tideline was watching.</span><span class="mono">Today</span></div>
+      </div>
+    </section>
+
+    {% if p.past_incidents %}
+    <section class="section" aria-labelledby="history">
+      <h2 id="history" class="label">Resolved incidents</h2>
+      <div class="panel">
+        {% for i in p.past_incidents %}
+        <div class="list-row">
+          {{ m.shape('up') }}
+          <span class="site-name"><strong>{{ i.check_kind|checkname }}</strong><span class="mono">{{ i.opened_at|local('%-d %b %H:%M') }}</span></span>
+          <span class="what check-val">{{ i.summary }}</span>
+          <span class="mono muted" style="font-size: 13px;">{{ (i.duration_seconds // 60) }} min</span>
+        </div>
+        {% endfor %}
+      </div>
+    </section>
+    {% endif %}
+  </div>
+
+  <aside style="display: flex; flex-direction: column; gap: 16px;">
+    {% for i in p.open_incidents %}
+    <section class="panel incident" aria-labelledby="inc-{{ i.id }}">
+      <h2 id="inc-{{ i.id }}" class="label">Open incident · {{ i.check_name }}</h2>
+      <ol class="timeline">
+        {% for e in i.timeline %}
+        <li><span class="mono">{{ e.at|local('%a %H:%M') }}</span><span>{{ e.text }}</span></li>
+        {% endfor %}
+      </ol>
+      <div class="todo">
+        <strong>What to do</strong>
+        <p>{{ i.guidance }}</p>
+        {% if i.can_accept_dns %}
+        <form method="post" action="/sites/{{ p.id }}/dns-baseline/accept-form">
+          <button class="btn btn-deep" type="submit">Accept the new DNS records</button>
+        </form>
+        {% endif %}
+      </div>
+    </section>
+    {% else %}
+    <section class="panel incident" aria-labelledby="noinc">
+      <h2 id="noinc" class="label">Open incidents</h2>
+      <p class="muted" style="margin: 0; font-size: 14px;">None. Tideline will email you the moment one opens.</p>
+    </section>
     {% endfor %}
-  </table>
-
-  <h2>Last 30 days</h2>
-  {% if daily %}
-    <table>
-      <tr><th>Day</th><th>Uptime</th><th>p50</th><th>p95</th><th>Incidents</th><th>Downtime</th></tr>
-      {% for row in daily %}
-        <tr>
-          <td class="muted">{{ row.day.strftime('%a %d %b') }}</td>
-          <td>
-            {% if row.uptime_percent is none %}-
-            {% else %}
-              <span class="pill {{ 'ok' if row.uptime_percent >= 99.9 else ('warn' if row.uptime_percent >= 99 else 'fail') }}">
-                {{ '%.2f%%' % row.uptime_percent }}
-              </span>
-            {% endif %}
-          </td>
-          <td class="muted">{{ row.p50_ms ~ ' ms' if row.p50_ms is not none else '-' }}</td>
-          <td class="muted">{{ row.p95_ms ~ ' ms' if row.p95_ms is not none else '-' }}</td>
-          <td>{{ row.incidents_opened }}</td>
-          <td class="muted">{{ (row.downtime_seconds // 60) ~ ' min' if row.downtime_seconds else '-' }}</td>
-        </tr>
-      {% endfor %}
-    </table>
-  {% else %}
-    <p class="muted">No daily summaries yet. The first is written at 00:20 UTC.</p>
-  {% endif %}
-
-  <h2>Incidents</h2>
-  {% if incidents %}
-    <table>
-      <tr><th>Opened</th><th>Check</th><th>Severity</th><th>Duration</th><th>What happened</th></tr>
-      {% for i in incidents %}
-        <tr>
-          <td class="muted">{{ i.opened_at.strftime('%Y-%m-%d %H:%M') }} UTC</td>
-          <td>{{ i.check_kind }}</td>
-          <td><span class="pill {{ 'fail' if i.severity == 'critical' else 'warn' }}">{{ i.severity }}</span></td>
-          <td>{{ (i.duration_seconds // 60) }} min{% if not i.resolved_at %} (open){% endif %}</td>
-          <td class="wrap">{{ i.summary }}</td>
-        </tr>
-      {% endfor %}
-    </table>
-  {% else %}
-    <p class="muted">None recorded.</p>
-  {% endif %}
-
-  <h2>Recent results</h2>
-  <table>
-    <tr><th>When</th><th>Check</th><th>Status</th><th>Took</th><th>Summary</th></tr>
-    {% for r in results %}
-      <tr>
-        <td class="muted">{{ r.started_at.strftime('%m-%d %H:%M:%S') }}</td>
-        <td>{{ r.kind }}</td>
-        <td><span class="pill {{ r.status }}">{{ r.status }}</span></td>
-        <td class="muted">{{ r.duration_ms }} ms</td>
-        <td class="wrap">{{ r.summary or '-' }}</td>
-      </tr>
-    {% endfor %}
-  </table>
+  </aside>
+</div>
 {% endblock %}

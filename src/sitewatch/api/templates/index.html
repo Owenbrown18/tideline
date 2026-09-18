@@ -1,47 +1,86 @@
 {% extends "base.html" %}
-{% macro status_pill(status) %}
-  <span class="pill {{ status or 'none' }}">{{ status or 'no data' }}</span>
-{% endmacro %}
+{% import "_macros.html" as m %}
+{% block title %}{{ o.headline.text }} · Tideline{% endblock %}
+
+{% block hero %}
+<section class="hero" aria-labelledby="headline">
+  <div class="hero-inner">
+    <div class="hero-copy">
+      <span class="eyebrow when">{{ now|local('%A %-d %B') }}</span>
+      <h1 id="headline">{{ o.headline.text }}<span class="p-{{ o.headline.tone }}">.</span></h1>
+      <p>{{ o.headline.detail }}</p>
+    </div>
+    <dl class="stats">
+      <div><dt class="eyebrow">Sites</dt><dd>{{ o.total_sites }}</dd></div>
+      <div><dt class="eyebrow">Checks</dt><dd>{{ o.total_checks }}</dd></div>
+      <div><dt class="eyebrow">Uptime, 30 d</dt><dd class="good">{{ o.uptime_30d|percent }}</dd></div>
+    </dl>
+  </div>
+</section>
+{% endblock %}
+
 {% block body %}
-  <h1>Sitewatch</h1>
-  <p class="sub">
-    {{ sites | selectattr("active") | list | length }} sites watched ·
-    {{ incidents | length }} open incident{{ '' if incidents | length == 1 else 's' }}
-  </p>
-
-  {% if incidents %}
-    <h2>Open incidents</h2>
-    <table>
-      <tr><th>Site</th><th>Check</th><th>Severity</th><th>Opened</th><th>What happened</th></tr>
-      {% for i in incidents %}
-        <tr>
-          <td><a href="/sites/{{ i.site_id }}/view">{{ i.site_name }}</a></td>
-          <td>{{ i.check_kind }}</td>
-          <td><span class="pill {{ 'fail' if i.severity == 'critical' else 'warn' }}">{{ i.severity }}</span></td>
-          <td class="muted">{{ i.opened_at.strftime('%Y-%m-%d %H:%M') }} UTC</td>
-          <td class="wrap">{{ i.summary }}</td>
-        </tr>
-      {% endfor %}
-    </table>
-  {% endif %}
-
-  <h2>Sites</h2>
-  <table>
-    <tr><th>Site</th><th>Status</th><th>Uptime 30 d</th><th>Response p50 / p95</th><th>Checks</th></tr>
-    {% for site in sites %}
-      {% set u = uptime[site.id] %}
-      <tr>
-        <td>
-          <a href="/sites/{{ site.id }}/view">{{ site.name }}</a>
-          <div class="muted">{{ site.domain }}{% if not site.active %} (inactive){% endif %}</div>
-        </td>
-        <td>{{ status_pill(site.status) }}</td>
-        <td>{{ '%.2f%%' % u.uptime_percent if u.uptime_percent is not none else '-' }}</td>
-        <td class="muted">
-          {{ u.p50_ms ~ ' / ' ~ u.p95_ms ~ ' ms' if u.p50_ms is not none else '-' }}
-        </td>
-        <td class="muted">{{ site.checks | selectattr("enabled") | list | length }}</td>
-      </tr>
+{% if o.needs_you or o.warnings %}
+<section class="section" aria-labelledby="needs">
+  <h2 id="needs" class="label">Needs you</h2>
+  <div class="panel">
+    {% for n in o.needs_you %}
+    <div class="need">
+      {{ m.shape('down') }}
+      <span class="site-name"><strong>{{ n.site_name }}</strong><span class="mono">{{ n.domain }}</span></span>
+      <span class="what">{{ n.summary }}</span>
+      <span class="since">{{ n.check_name }} · since {{ n.opened_at|local('%a %H:%M') }}</span>
+      <a class="btn" href="/sites/{{ n.site_id }}/view">Open</a>
+    </div>
     {% endfor %}
-  </table>
+    {% if o.warnings %}
+    <div class="need">
+      {{ m.shape('warn') }}
+      <span class="site-name"><strong>{{ o.warnings|length }} warning{{ '' if o.warnings|length == 1 else 's' }}</strong><span class="mono">{{ o.warnings|map(attribute='check_name')|unique|join(', ') }}</span></span>
+      <span class="what">Nothing is breaking. {{ 'Each one is' if o.warnings|length > 1 else 'It is' }} worth fixing when you have time.</span>
+      <span class="since">oldest since {{ (o.warnings|min(attribute='opened_at')).opened_at|local('%a %H:%M') }}</span>
+      <a class="btn" href="/incidents/view">Review</a>
+    </div>
+    {% endif %}
+  </div>
+</section>
+{% endif %}
+
+<section class="section" aria-labelledby="all">
+  <div class="section-head">
+    <h2 id="all" class="label">All sites</h2>
+    <span class="muted" style="font-size: 13px;">Each cell is a day. Hollow days were before Tideline was watching.</span>
+  </div>
+  <div class="panel table-wrap">
+    <table class="sites">
+      <thead>
+        <tr>
+          <th scope="col"><span class="visually-hidden">Status</span></th>
+          <th scope="col" class="label">Site</th>
+          <th scope="col" class="label hide-sm strip-col">Last 30 days</th>
+          <th scope="col" class="label num">Uptime</th>
+          <th scope="col" class="label num hide-xs">Response</th>
+          <th scope="col" class="label num hide-sm">Certificate</th>
+          <th scope="col" class="label num hide-sm">Domain</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for r in o.rows %}
+        <tr>
+          <td style="width: 20px;">{{ m.shape(r.tone) }}</td>
+          <td><a class="row-link site-name" href="/sites/{{ r.id }}/view"><strong>{{ r.name }}</strong><span class="mono">{{ r.domain }}</span></a></td>
+          <td class="hide-sm">{{ m.strip(r.cells, r.strip_label) }}</td>
+          {% set ut = 'none' if r.uptime is none else ('up' if r.uptime >= 99.9 else ('warn' if r.uptime >= 99 else 'down')) %}
+          <td class="num w-{{ ut }}">{{ r.uptime|percent }}</td>
+          <td class="num hide-xs">{{ r.p50_ms ~ ' ms' if r.p50_ms is not none else '–' }}</td>
+          <td class="num hide-sm {{ 'soon' if r.cert_days is not none and r.cert_days < 21 }}">{{ r.cert_days ~ ' d' if r.cert_days is not none else '–' }}</td>
+          <td class="num hide-sm {{ 'soon' if r.domain_days is not none and r.domain_days < 30 }}">{{ r.domain_days ~ ' d' if r.domain_days is not none else '–' }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="7" class="quiet">No sites yet. Add them to sites.yaml and seed.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
 {% endblock %}

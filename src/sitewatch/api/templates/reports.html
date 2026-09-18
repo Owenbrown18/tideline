@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block title %}Reports · Tideline{% endblock %}
+
+{% block hero %}
+<section class="hero" aria-labelledby="headline">
+  <div class="hero-inner">
+    <div class="hero-copy">
+      <span class="eyebrow when">Reports</span>
+      <h1 id="headline">Monthly reports<span class="p-{{ state }}">.</span></h1>
+      <p>One per site, emailed to you on the morning of the 1st. Each page below is the same report, ready to forward.</p>
+    </div>
+  </div>
+</section>
+{% endblock %}
+
+{% block body %}
+{% for month in months %}
+<section class="month" aria-labelledby="m-{{ month.key }}">
+  <h2 id="m-{{ month.key }}">{{ month.label }}</h2>
+  <div class="panel">
+    {% for s in month.sites %}
+    {% set ut = 'none' if s.uptime is none else ('up' if s.uptime >= 99.9 else ('warn' if s.uptime >= 99 else 'down')) %}
+    <a class="list-row" href="/reports/{{ s.id }}/{{ month.key }}">
+      {{ m.shape(ut) }}
+      <span class="site-name"><strong>{{ s.name }}</strong><span class="mono">{{ s.domain }}</span></span>
+      <span class="what"></span>
+      <span class="mono w-{{ ut }}" style="font-size: 14px;">{{ s.uptime|percent }}</span>
+    </a>
+    {% endfor %}
+  </div>
+</section>
+{% else %}
+<p class="quiet panel">No reports yet. The first daily summary is written just after midnight.</p>
+{% endfor %}
+{% endblock %}

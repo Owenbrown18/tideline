@@ -228,9 +228,11 @@ async def test_dashboard_lists_sites_and_incidents(client, data):
     # site name that reaches the page.
     assert "Daves&#39; Bakery" in body
     assert "davesbakery.ca" in body
-    assert "1 open incident" in body
-    assert "certificate expires in 12 days" in body
-    assert "60.00%" in body
+    # The outage is resolved; the certificate warning is still open.
+    assert "The site is up" in body
+    assert "One warning to look at when you have time." in body
+    assert "1 warning" in body  # the "Needs you" row
+    assert "Certificate" in body  # which check the warning is on
     assert "never to clients" in body
 
 
@@ -245,4 +247,54 @@ async def test_dashboard_site_page(client, data):
 async def test_dashboard_empty_state(client):
     page = await client.get("/", auth=DASH)
     assert page.status_code == 200
-    assert "0 sites watched" in page.text or "sites watched" in page.text
+    assert "Waiting for the first checks" in page.text
+    assert "No sites yet" in page.text
+
+
+async def test_incidents_page_lists_open_and_resolved(client, data):
+    page = await client.get("/incidents/view", auth=DASH)
+    assert page.status_code == 200
+    assert "certificate expires in 12 days" in page.text  # open warning
+    assert "is down: HTTP 503" in page.text  # resolved outage
+    # The JSON API keeps its own /incidents, behind the token.
+    assert (await client.get("/incidents", auth=DASH)).status_code == 401
+
+
+async def test_reports_page_before_any_rollups(client, data):
+    page = await client.get("/reports", auth=DASH)
+    assert page.status_code == 200
+    assert "No reports yet" in page.text
+
+
+@pytest.mark.parametrize(
+    ("status", "shape"),
+    [("fail", "<rect x="), ("warn", 'd="M50 38'), ("ok", '<circle cx="49.5" cy="45.5" r="6"')],
+)
+async def test_favicon_shows_the_worst_status(client, sessionmaker, status, shape):
+    async with sessionmaker() as session, session.begin():
+        site = Site(name="One", domain="one.ca", urls=["https://one.ca/"])
+        session.add(site)
+        await session.flush()
+        check = Check(site_id=site.id, kind="uptime", key="u", interval_seconds=300, config={})
+        session.add(check)
+        await session.flush()
+        session.add(
+            CheckResult(
+                check_id=check.id,
+                started_at=datetime.now(UTC),
+                duration_ms=1,
+                status=status,
+                detail={},
+            )
+        )
+    icon = await client.get("/favicon.svg")  # browsers ask for it without credentials
+    assert icon.status_code in (200, 401)
+    icon = await client.get("/favicon.svg", auth=DASH)
+    assert icon.headers["content-type"] == "image/svg+xml"
+    assert icon.headers["cache-control"] == "no-cache"
+    assert shape in icon.text
+
+
+async def test_favicon_before_any_checks_is_a_hollow_ring(client):
+    icon = await client.get("/favicon.svg", auth=DASH)
+    assert 'fill="none"' in icon.text

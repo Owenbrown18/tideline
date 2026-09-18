@@ -1,50 +1,44 @@
+{% import "_macros.html" as macros %}
 <!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex, nofollow">
-  <title>{% block title %}Sitewatch{% endblock %}</title>
-  <style>
-    :root {
-      --bg: #12141a; --panel: #1a1d26; --line: #2b2f3c; --text: #e7e9ee;
-      --muted: #9aa1b1; --ok: #3fb950; --warn: #d29922; --fail: #f85149;
-    }
-    @media (prefers-color-scheme: light) {
-      :root { --bg: #f6f7f9; --panel: #fff; --line: #e2e5ea; --text: #1a1d26; --muted: #5b6373; }
-    }
-    * { box-sizing: border-box; }
-    body { margin: 0; padding: 24px 16px 48px; background: var(--bg); color: var(--text);
-           font: 15px/1.5 ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif; }
-    main { max-width: 1040px; margin: 0 auto; }
-    h1 { font-size: 20px; margin: 0 0 4px; }
-    h2 { font-size: 15px; margin: 28px 0 8px; color: var(--muted); font-weight: 600;
-         text-transform: uppercase; letter-spacing: .06em; }
-    a { color: inherit; }
-    .sub { color: var(--muted); font-size: 13px; margin: 0 0 20px; }
-    table { width: 100%; border-collapse: collapse; background: var(--panel);
-            border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
-    th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line);
-             font-variant-numeric: tabular-nums; }
-    th { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
-    tr:last-child td { border-bottom: 0; }
-    .pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px;
-            font-weight: 600; color: #08090c; }
-    .ok { background: var(--ok); } .warn { background: var(--warn); } .fail { background: var(--fail); }
-    .none { background: var(--muted); }
-    .muted { color: var(--muted); }
-    .wrap { max-width: 520px; overflow-wrap: anywhere; }
-    footer { color: var(--muted); font-size: 12px; margin-top: 32px; }
-    @media (max-width: 640px) { th:nth-child(n+4), td:nth-child(n+4) { display: none; } }
-  </style>
+  <meta name="theme-color" content="#0b1826">
+  <title>{% block title %}Tideline{% endblock %}</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="/static/tideline.css?v={{ version }}">
 </head>
 <body>
-<main>
-  {% block body %}{% endblock %}
-  <footer>
-    Sitewatch {{ version }} · alerts and reports go to Owen only, never to clients ·
-    <a href="/docs">API docs</a>
-  </footer>
+<a class="skip" href="#main">Skip to content</a>
+<header class="top">
+  <div class="top-inner">
+    <a class="brand" href="/" aria-label="Tideline by OBdesign, overview">
+      <span class="wordmark">Tideline<span class="p-{{ state|default('up') }}">.</span></span>
+      <span class="endorse">by OBdesign</span>
+    </a>
+    <nav class="nav" aria-label="Main">
+      <a href="/" {% if active == 'overview' %}aria-current="page"{% endif %}>Overview</a>
+      <a href="/incidents/view" {% if active == 'incidents' %}aria-current="page"{% endif %}>Incidents</a>
+      <a href="/reports" {% if active == 'reports' %}aria-current="page"{% endif %}>Reports</a>
+    </nav>
+    <div class="live">
+      <svg class="breathe" width="8" height="8" viewBox="0 0 8 8" aria-hidden="true"><circle cx="4" cy="4" r="4" fill="#86b0d6"/></svg>
+      <span>{% if last_checked %}Checked {{ macros.ago(last_checked, now) }}{% else %}Watching{% endif %}</span>
+    </div>
+  </div>
+</header>
+{% block hero %}{% endblock %}
+<main id="main" class="page">
+{% block body %}{% endblock %}
 </main>
+<footer class="foot">
+  <span>Tideline {{ version }} · alerts and reports go to Owen only, never to clients.</span>
+  <span><a href="/docs">API</a> · times in Pacific time</span>
+</footer>
 </body>
 </html>

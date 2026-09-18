@@ -154,3 +154,41 @@ async def test_lookup_failure_writes_nothing(sessionmaker, clock, dns_site):
     async with sessionmaker() as session:
         assert list(await session.scalars(select(DnsBaseline))) == []
         assert list(await session.scalars(select(Incident))) == []
+
+
+async def test_the_dashboard_button_accepts_only_from_the_dashboard(
+    sessionmaker, clock, client, dns_site
+):
+    """The accept button on the site page, and its cross-site request check."""
+    notifier = RecordingNotifier()
+    await runner_with(sessionmaker, notifier, clock, BASELINE).run_check(dns_site)
+    moved = {**BASELINE, "example.ca": {**BASELINE["example.ca"], "A": ["203.0.113.9"]}}
+    await runner_with(sessionmaker, notifier, clock, moved).run_check(dns_site)
+    async with sessionmaker() as session:
+        site_id = (await session.get(Check, dns_site)).site_id
+
+    dash = ("owen", "x")
+    page = await client.get(f"/sites/{site_id}/view", auth=dash)
+    assert "DNS has changed" in page.text
+    form = f"/sites/{site_id}/dns-baseline/accept-form"
+    assert f'action="{form}"' in page.text
+
+    # A page on another site making Owen's browser press the button: refused.
+    for headers in ({"Origin": "https://evil.example"}, {}):
+        refused = await client.post(form, auth=dash, headers=headers)
+        assert refused.status_code == 403
+    async with sessionmaker() as session:
+        assert await get_baseline(session, site_id) == BASELINE
+
+    # The button itself, from the dashboard's own page: accepted, back to the site.
+    accepted = await client.post(form, auth=dash, headers={"Origin": "http://t"})
+    assert accepted.status_code == 303
+    assert accepted.headers["location"] == f"/sites/{site_id}/view"
+    async with sessionmaker() as session:
+        assert await get_baseline(session, site_id) == moved
+        assert (
+            await session.scalar(select(Incident).where(Incident.resolved_at.is_(None)))
+        ) is None
+
+    # And it still needs the dashboard password.
+    assert (await client.post(form, headers={"Origin": "http://t"})).status_code == 401

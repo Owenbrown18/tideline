@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block title %}Incidents · Tideline{% endblock %}
+
+{% block hero %}
+<section class="hero" aria-labelledby="headline">
+  <div class="hero-inner">
+    <div class="hero-copy">
+      <span class="eyebrow when">Incidents</span>
+      {% set crit = page.open|selectattr('severity', 'equalto', 'critical')|list %}
+      {% set warns = page.open|length - crit|length %}
+      <h1 id="headline">{% if crit %}{{ crit|length|numberword }} need{{ 's' if crit|length == 1 }} you{% elif warns %}Nothing urgent{% else %}Nothing open{% endif %}<span class="p-{{ state }}">.</span></h1>
+      <p>{% if warns %}{{ warns|numberword }} warning{{ '' if warns == 1 else 's' }} can wait. {% endif %}{% if page.resolved %}{{ page.resolved|length|numberword }} resolved{% else %}None resolved{% endif %} in the last 30 days.</p>
+    </div>
+  </div>
+</section>
+{% endblock %}
+
+{% block body %}
+<section class="section" aria-labelledby="open">
+  <h2 id="open" class="label">Open</h2>
+  <div class="panel">
+    {% for i in page.open %}
+    <a class="list-row" href="/sites/{{ i.site_id }}/view">
+      {{ m.shape('down' if i.severity == 'critical' else 'warn') }}
+      <span class="site-name"><strong>{{ i.site_name }}</strong><span class="mono">{{ i.domain }}</span></span>
+      <span class="what check-val">{{ i.summary }}</span>
+      <span class="mono muted" style="font-size: 13px;">since {{ i.opened_at|local('%a %-d %b %H:%M') }}</span>
+    </a>
+    {% else %}
+    <p class="quiet">No open incidents.</p>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="section" aria-labelledby="resolved">
+  <h2 id="resolved" class="label">Resolved, last 30 days</h2>
+  <div class="panel">
+    {% for i in page.resolved %}
+    <a class="list-row" href="/sites/{{ i.site_id }}/view">
+      {{ m.shape('up') }}
+      <span class="site-name"><strong>{{ i.site_name }}</strong><span class="mono">{{ i.domain }}</span></span>
+      <span class="what check-val">{{ i.summary }}</span>
+      <span class="mono muted" style="font-size: 13px;">{{ i.opened_at|local('%-d %b') }} · {{ (i.duration_seconds // 60) }} min</span>
+    </a>
+    {% else %}
+    <p class="quiet">Nothing resolved in the last 30 days.</p>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

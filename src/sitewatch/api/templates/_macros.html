@@ -1,0 +1,34 @@
+{# Status shapes: colour, shape and (via the label) a word, never colour alone. #}
+{% macro shape(tone, dark=false, size=14) -%}
+{%- set f = {'up': '#86b0d6' if dark else '#2f6fa6', 'warn': '#e0a93f' if dark else '#a8740f', 'down': '#e8705a' if dark else '#c0432f', 'none': '#6f7a86' if dark else '#848d89'} -%}
+{%- set word = {'up': 'Up', 'warn': 'Warning', 'down': 'Down', 'none': 'No data'}[tone] -%}
+<span class="shape" role="img" aria-label="{{ word }}" title="{{ word }}">
+{%- if tone == 'up' -%}
+<svg width="{{ size }}" height="{{ size }}" viewBox="0 0 14 14"><circle cx="7" cy="7" r="6" fill="{{ f.up }}"/></svg>
+{%- elif tone == 'warn' -%}
+<svg width="{{ size + 1 }}" height="{{ size }}" viewBox="0 0 15 14"><path d="M7.5 0.8 L14.4 13.2 H0.6 Z" fill="{{ f.warn }}"/></svg>
+{%- elif tone == 'down' -%}
+<svg width="{{ size - 1 }}" height="{{ size - 1 }}" viewBox="0 0 13 13"><rect x="0.5" y="0.5" width="12" height="12" rx="1.5" fill="{{ f.down }}"/></svg>
+{%- else -%}
+<svg width="{{ size }}" height="{{ size }}" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5.2" fill="none" stroke="{{ f.none }}" stroke-width="1.6"/></svg>
+{%- endif -%}
+</span>
+{%- endmacro %}
+
+{% macro strip(cells, label, big=false) -%}
+<div class="strip{{ ' big' if big }}" role="img" aria-label="Last 30 days. {{ label }}">
+{%- for c in cells %}<span class="cell c-{{ c.tone }}" title="{{ c.label }}"></span>{% endfor -%}
+</div>
+{%- endmacro %}
+
+{% macro ago(when, now) -%}
+{%- if when is none -%}never
+{%- else -%}
+{%- set s = (now - when).total_seconds() -%}
+{%- if s < 90 -%}just now
+{%- elif s < 3600 -%}{{ (s // 60)|int }} min ago
+{%- elif s < 86400 -%}{{ (s // 3600)|int }} h ago
+{%- else -%}{{ (s // 86400)|int }} d ago
+{%- endif -%}
+{%- endif -%}
+{%- endmacro %}

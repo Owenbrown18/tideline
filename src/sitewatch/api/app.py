@@ -10,15 +10,17 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request, status
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from sitewatch import __version__
-from sitewatch.api import queries
+from sitewatch import __version__, brand
+from sitewatch.api import queries, views
 from sitewatch.api.auth import require_api_token, require_dashboard_user
 from sitewatch.api.schemas import (
     CheckOut,
@@ -36,7 +38,11 @@ from sitewatch.observability.logging import configure_logging
 from sitewatch.reports.monthly import build_report, render_html
 
 log = logging.getLogger("sitewatch.api")
-TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
+HERE = Path(__file__).parent
+TEMPLATES = Jinja2Templates(directory=str(HERE / "templates"))
+TEMPLATES.env.filters["checkname"] = brand.check_name
+TEMPLATES.env.filters["numberword"] = brand.number_word
+TEMPLATES.env.filters["percent"] = brand.percent
 
 
 @asynccontextmanager
@@ -104,11 +110,7 @@ async def list_incidents(
     return [IncidentOut.of(i) for i in found]
 
 
-@api.post(
-    "/sites/{site_id}/dns-baseline/accept",
-    summary="Accept the current DNS records as the new baseline",
-)
-async def accept_dns_baseline(site_id: int, session: Session) -> DnsBaselineOut:
+async def _accept_dns(session: AsyncSession, site_id: int) -> DnsBaselineOut:
     """Owen's decision, after a DNS change turns out to be intentional.
 
     The records from the latest DNS check become the baseline, and the open DNS
@@ -131,21 +133,94 @@ async def accept_dns_baseline(site_id: int, session: Session) -> DnsBaselineOut:
     await set_baseline(session, site_id, latest, now)
     resolved = await queries.resolve_dns_incidents(session, site_id, now)
     await session.commit()
-
     return DnsBaselineOut(
         site_id=site_id, accepted_at=now, records=latest, incidents_resolved=resolved
     )
 
 
-@dashboard.get("/", response_class=HTMLResponse, summary="Dashboard")
-async def dashboard_home(request: Request, session: Session) -> Any:
-    sites = await queries.site_statuses(session)
-    open_incidents = await queries.incidents(session, open_only=True)
-    uptime = {site.id: await queries.uptime_stats(session, site.id, 30) for site in sites}
+@api.post(
+    "/sites/{site_id}/dns-baseline/accept",
+    summary="Accept the current DNS records as the new baseline",
+)
+async def accept_dns_baseline(site_id: int, session: Session) -> DnsBaselineOut:
+    return await _accept_dns(session, site_id)
+
+
+# --- the dashboard ---------------------------------------------------------------
+
+
+async def _page(
+    request: Request, session: AsyncSession, template: str, active: str, **context: Any
+) -> HTMLResponse:
+    """Render a dashboard page with what every page needs: the overall state
+    (the period in the header), when the last check ran, and the time now."""
+    state = await views.overall_state(session)
+    last = await session.scalar(text("SELECT max(started_at) FROM check_results"))
     return TEMPLATES.TemplateResponse(
         request,
-        "index.html",
-        {"sites": sites, "incidents": open_incidents, "uptime": uptime, "version": __version__},
+        template,
+        {
+            "state": state,
+            "last_checked": last,
+            "now": datetime.now(UTC),
+            "version": __version__,
+            "active": active,
+            **context,
+        },
+    )
+
+
+@dashboard.get("/", response_class=HTMLResponse, summary="Dashboard")
+async def dashboard_home(request: Request, session: Session) -> HTMLResponse:
+    return await _page(request, session, "index.html", "overview", o=await views.overview(session))
+
+
+@dashboard.get("/sites/{site_id}/view", response_class=HTMLResponse, summary="One site")
+async def dashboard_site(request: Request, site_id: int, session: Session) -> HTMLResponse:
+    page = await views.site_page(session, site_id, request.app.state.settings.display_timezone)
+    if page is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail=f"no site with id {site_id}")
+    return await _page(request, session, "site.html", "overview", p=page)
+
+
+# /incidents is the JSON API; the page sits beside it, as /sites/{id}/view does.
+@dashboard.get("/incidents/view", response_class=HTMLResponse, summary="Incidents")
+async def dashboard_incidents(request: Request, session: Session) -> HTMLResponse:
+    page = await views.incidents_page(session)
+    return await _page(request, session, "incidents.html", "incidents", page=page)
+
+
+@dashboard.get("/reports", response_class=HTMLResponse, summary="Reports")
+async def dashboard_reports(request: Request, session: Session) -> HTMLResponse:
+    months = await views.reports_page(session)
+    return await _page(request, session, "reports.html", "reports", months=months)
+
+
+@dashboard.post("/sites/{site_id}/dns-baseline/accept-form", summary="Accept DNS (dashboard)")
+async def dashboard_accept_dns(
+    request: Request, site_id: int, session: Session
+) -> RedirectResponse:
+    """The dashboard's "Accept the new DNS records" button.
+
+    Browsers send basic-auth credentials automatically, so a form on another
+    site could otherwise make Owen's browser press this button (cross-site
+    request forgery). Refuse any request whose Origin is not this site.
+    """
+    origin = request.headers.get("origin") or request.headers.get("referer") or ""
+    if urlparse(origin).netloc != request.url.netloc:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="cross-site request refused")
+    await _accept_dns(session, site_id)
+    return RedirectResponse(f"/sites/{site_id}/view", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@dashboard.get("/favicon.svg", summary="Favicon")
+async def favicon(session: Session) -> Response:
+    """The T. mark, with the period drawn in the worst current status."""
+    state = await views.overall_state(session)
+    return Response(
+        brand.favicon_svg(state),
+        media_type="image/svg+xml",
+        headers={"Cache-Control": "no-cache"},
     )
 
 
@@ -159,7 +234,7 @@ async def dashboard_report(request: Request, site_id: int, month: str, session: 
             raise ValueError
     except ValueError:
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY, detail="month must look like 2026-09"
+            status.HTTP_422_UNPROCESSABLE_CONTENT, detail="month must look like 2026-09"
         ) from None
     try:
         report = await build_report(session, site_id, year, month_number)
@@ -168,25 +243,6 @@ async def dashboard_report(request: Request, site_id: int, month: str, session: 
             status.HTTP_404_NOT_FOUND, detail=f"no site with id {site_id}"
         ) from None
     return HTMLResponse(render_html(report))
-
-
-@dashboard.get("/sites/{site_id}/view", response_class=HTMLResponse, summary="One site")
-async def dashboard_site(request: Request, site_id: int, session: Session) -> Any:
-    statuses = await queries.site_statuses(session, site_id)
-    if not statuses:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail=f"no site with id {site_id}")
-    return TEMPLATES.TemplateResponse(
-        request,
-        "site.html",
-        {
-            "site": statuses[0],
-            "uptime": await queries.uptime_stats(session, site_id, 30),
-            "incidents": await queries.incidents(session, site_id=site_id, limit=20),
-            "results": await queries.recent_results(session, site_id, limit=50),
-            "daily": await queries.recent_rollups(session, site_id, days=30),
-            "version": __version__,
-        },
-    )
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -199,12 +255,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
 
     app = FastAPI(
-        title="Sitewatch",
+        title="Tideline",
         version=__version__,
-        summary="Monitoring for the websites OBdesign runs.",
+        summary="Monitoring for the websites OBdesign runs. Tideline by OBdesign.",
         lifespan=lifespan,
     )
     app.state.settings = settings
+    zone = settings.display_timezone
+    TEMPLATES.env.filters["local"] = lambda when, fmt: brand.local(when, fmt, zone)
+    # The stylesheet is public: it holds no data, and the login prompt needs no styles.
+    app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
 
     @app.get("/healthz", summary="Liveness: process up, database reachable", tags=["health"])
     async def healthz(session: Session) -> Health:
