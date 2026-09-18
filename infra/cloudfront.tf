@@ -8,9 +8,9 @@
 #
 # The certificate must be in us-east-1, where CloudFront reads certificates
 # from. ACM proves the domain is Owen's with one DNS record at Hostinger
-# (output `certificate_validation_record`). Until that record exists and the
-# certificate is issued, `use_custom_domain` stays false and the dashboard is
-# reachable on CloudFront's own address.
+# (output `certificate_validation_record`), added 2026-09-18. With
+# `use_custom_domain` false, the dashboard is served on CloudFront's own address
+# only (how it started, before the certificate was issued).
 
 provider "aws" {
   alias  = "us_east_1"
@@ -36,14 +36,6 @@ resource "aws_acm_certificate" "dashboard" {
 
 locals {
   function_url_host = trimsuffix(trimprefix(aws_lambda_function_url.web.function_url, "https://"), "/")
-}
-
-resource "aws_cloudfront_function" "restore_login_prompt" {
-  name    = "tideline-restore-login-prompt"
-  runtime = "cloudfront-js-2.0"
-  comment = "Puts back the WWW-Authenticate header Lambda renames, so browsers ask for the password."
-  publish = true
-  code    = file("${path.module}/functions/restore_login_prompt.js")
 }
 
 resource "aws_cloudfront_distribution" "dashboard" {
@@ -77,10 +69,6 @@ resource "aws_cloudfront_distribution" "dashboard" {
     cache_policy_id          = "4135ea2d-6df8-44a3-9df3-4b5a84be39ad" # CachingDisabled
     origin_request_policy_id = "b689b0a8-53d0-40ab-baf2-68738e2966ac" # AllViewerExceptHostHeader
 
-    function_association {
-      event_type   = "viewer-response"
-      function_arn = aws_cloudfront_function.restore_login_prompt.arn
-    }
   }
 
   restrictions {

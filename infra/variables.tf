@@ -22,9 +22,9 @@ variable "dashboard_domain" {
 }
 
 variable "use_custom_domain" {
-  description = "false until the certificate's validation record is at the DNS host; then true serves the dashboard on dashboard_domain."
+  description = "Serve the dashboard on dashboard_domain. Needs the certificate issued (its validation record at the DNS host) first."
   type        = bool
-  default     = false
+  default     = true
 }
 
 variable "alert_email" {
