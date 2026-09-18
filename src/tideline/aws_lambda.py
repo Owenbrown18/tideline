@@ -153,8 +153,9 @@ def _web_app() -> tuple[Any, S3Database]:
 
         settings = get_settings()
         configure_logging(settings.log_level)
-        load_secrets(settings.secrets_prefix, settings.aws_region)
-        settings = get_settings()
+        if not settings.demo_mode:  # the demo has no secrets, and no access to any
+            load_secrets(settings.secrets_prefix, settings.aws_region)
+            settings = get_settings()
         _web["handler"] = Mangum(create_app(settings), lifespan="auto")
         _web["store"] = _store(settings)
     return _web["handler"], _web["store"]
@@ -192,3 +193,38 @@ def web_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
                 "body": json.dumps({"detail": "a check run finished meanwhile; try again"}),
             }
     return response
+
+
+# --- the public demo -------------------------------------------------------------------
+
+
+def demo_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
+    """The public demo (infra/demo.tf): the dashboard, read-only, over invented data.
+
+    Once a day the scheduler sends {"task": "showcase"}: the showcase database is
+    rebuilt by running the real product against a simulated web (tideline.showcase),
+    so its dates stay current, and uploaded for the dashboard to read.
+    """
+    if event.get("task") == "showcase":
+        return _rebuild_showcase()
+    return web_handler(event, context)
+
+
+def _rebuild_showcase() -> dict[str, Any]:
+    from tideline.showcase import build
+
+    settings = get_settings()
+    configure_logging(settings.log_level)
+    out = Path("/tmp/showcase-build.db")
+    out.unlink(missing_ok=True)
+    emails = build(out, pace=settings.showcase_pace)
+    boto3.client("s3", region_name=settings.aws_region).upload_file(
+        str(out), settings.db_bucket, settings.db_key
+    )
+    result: dict[str, Any] = {
+        "task": "showcase",
+        "bytes": out.stat().st_size,
+        "emails": len(emails),
+    }
+    log_event(log, "showcase_rebuilt", bytes=result["bytes"], emails=result["emails"])
+    return result

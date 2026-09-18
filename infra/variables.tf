@@ -44,3 +44,15 @@ variable "monthly_budget_usd" {
   type        = number
   default     = 3
 }
+
+variable "demo_domain" {
+  description = "The public demo's address."
+  type        = string
+  default     = "tideline.obwebdesign.ca"
+}
+
+variable "use_demo_domain" {
+  description = "Serve the demo on demo_domain. Needs its certificate issued (the validation record at the DNS host) first."
+  type        = bool
+  default     = false
+}

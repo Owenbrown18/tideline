@@ -16,6 +16,12 @@
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
+{% if demo %}
+<div class="demo-bar" role="note">
+  <span><strong>Live demo.</strong> Eight invented businesses, six months of real Tideline runs against a simulated web. Real client dashboards are private.</span>
+  <a href="https://obwebdesign.ca" rel="noopener">OBdesign</a>
+</div>
+{% endif %}
 <header class="top">
   <div class="top-inner">
     <a class="brand" href="/" aria-label="Tideline by OBdesign, overview">
@@ -39,7 +45,7 @@
 </main>
 <footer class="foot">
   <span>Tideline {{ version }} · alerts and reports go to Owen only, never to clients.</span>
-  <span>Times in Pacific time · <form class="inline-form" method="post" action="/logout"><button class="link-button" type="submit">Sign out</button></form></span>
+  <span>Times in Pacific time{% if not demo %} · <form class="inline-form" method="post" action="/logout"><button class="link-button" type="submit">Sign out</button></form>{% endif %}</span>
 </footer>
 
 <dialog id="report-dialog" class="report-dialog" aria-labelledby="report-title">

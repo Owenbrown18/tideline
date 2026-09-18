@@ -113,6 +113,8 @@ def safe_next(path: str | None) -> str:
 
 async def require_dashboard_user(request: Request, credentials: BasicCredentials) -> str:
     settings = _settings(request)
+    if settings.demo_mode:
+        return "demo"  # the public demo: invented businesses, nothing to protect
     if valid_session(settings, request.cookies.get(SESSION_COOKIE)):
         return settings.dashboard_user
     if credentials is not None and valid_login(

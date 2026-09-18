@@ -71,6 +71,7 @@ resource "aws_iam_role_policy" "github_deploy" {
         Resource = [
           aws_lambda_function.run.arn,
           aws_lambda_function.web.arn,
+          aws_lambda_function.demo.arn,
         ]
       },
     ]

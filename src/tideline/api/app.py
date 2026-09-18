@@ -94,6 +94,15 @@ async def security_headers(
     return response
 
 
+async def read_only(
+    request: Request, call_next: Callable[[Request], Awaitable[Response]]
+) -> Response:
+    """The demo refuses anything that is not a read."""
+    if request.method not in ("GET", "HEAD", "OPTIONS"):
+        return JSONResponse({"detail": "the demo is read-only"}, status_code=405)
+    return await call_next(request)
+
+
 def _wants_html(request: Request) -> bool:
     return "text/html" in request.headers.get("accept", "")
 
@@ -255,6 +264,7 @@ async def _page(
             "now": datetime.now(UTC),
             "version": __version__,
             "active": active,
+            "demo": request.app.state.settings.demo_mode,
             **context,
         },
     )
@@ -418,7 +428,7 @@ async def logout() -> RedirectResponse:
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
     missing = [name for name in ("api_token", "dashboard_password") if not getattr(settings, name)]
-    if missing:
+    if missing and not settings.demo_mode:
         # Refuse to start rather than serve client data unprotected.
         raise RuntimeError(
             "missing required settings: " + ", ".join(f"TIDELINE_{m.upper()}" for m in missing)
@@ -455,6 +465,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ) from None
         return Health(status="ok", database="ok", version=__version__)
 
+    if settings.demo_mode:
+        # Read-only and open: the dashboard pages only, no sign-in, no JSON API,
+        # and nothing that changes data.
+        app.middleware("http")(read_only)
+        app.include_router(dashboard)
+        return app
     app.include_router(signin)
     app.include_router(api)
     app.include_router(dashboard)

@@ -67,7 +67,7 @@
       <div class="todo">
         <strong>What to do</strong>
         <p>{{ i.guidance }}</p>
-        {% if i.can_accept_dns %}
+        {% if i.can_accept_dns and not demo %}
         <form method="post" action="/sites/{{ p.id }}/dns-baseline/accept-form">
           <button class="btn btn-deep" type="submit">Accept the new DNS records</button>
         </form>

@@ -270,3 +270,8 @@ a:hover { color: var(--up-text); }
 .inline-form { display: inline; margin: 0; }
 .link-button { background: none; border: 0; padding: 0; font: inherit; color: var(--slate); text-decoration: underline; cursor: pointer; }
 .link-button:hover { color: var(--deep); }
+
+/* --- the public demo's banner ------------------------------------------------ */
+.demo-bar { display: flex; justify-content: center; align-items: center; gap: 16px; flex-wrap: wrap; padding: 9px 16px; background: #16304c; color: var(--haze); font-size: 13px; text-align: center; }
+.demo-bar strong { color: var(--paper); font-weight: 600; }
+.demo-bar a { color: var(--tide); font-weight: 600; }

@@ -23,7 +23,11 @@ aws ecr get-login-password | docker login --username AWS --password-stdin "$REGI
 # --provenance=false: Lambda accepts a plain image, not a multi-part image index.
 docker buildx build --quiet --platform linux/arm64 --provenance=false -t "$REPO:$TAG" --push . >/dev/null
 
-for fn in tideline-run tideline-web; do
+for fn in tideline-run tideline-web tideline-demo; do
+  if ! aws lambda get-function --function-name "$fn" >/dev/null 2>&1; then
+    log "skip_$fn (not created yet: terraform apply creates it)"
+    continue
+  fi
   log "update_$fn"
   aws lambda update-function-code --function-name "$fn" --image-uri "$REPO:$TAG" >/dev/null
   aws lambda wait function-updated-v2 --function-name "$fn"

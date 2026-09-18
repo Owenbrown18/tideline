@@ -21,6 +21,14 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     user_agent: str = "Tideline/1.0 (+https://obwebdesign.ca)"
 
+    # The public demo (tideline-demo): the dashboard with no sign-in, read-only,
+    # over the showcase database of invented businesses. Never set this on the
+    # real dashboard: it removes the password.
+    demo_mode: bool = False
+    # How long the showcase's simulated pages take to load, as a multiple of a
+    # real site (1.0: realistic response times; 0: instant, for tests).
+    showcase_pace: float = 1.0
+
     # Where the database file lives between runs on Lambda (tideline.db.store).
     # Empty means "just use database_url as it is" (local development).
     db_bucket: str = ""

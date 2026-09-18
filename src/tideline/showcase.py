@@ -22,6 +22,7 @@ Tideline itself produced. Nothing is written by hand.
 """
 
 import asyncio
+import os
 import random
 import zlib
 from collections.abc import Iterator
@@ -43,7 +44,11 @@ from tideline.schedule import RUN_DAYS, RUN_TIME
 from tideline.worker.run import run
 
 ZONE = "America/Vancouver"
-ALEMBIC_INI = Path(__file__).resolve().parents[2] / "alembic.ini"
+# In the repo, alembic.ini is at the root; in the Lambda image, where the
+# Dockerfile says (TIDELINE_ALEMBIC_INI).
+ALEMBIC_INI = Path(
+    os.environ.get("TIDELINE_ALEMBIC_INI", Path(__file__).resolve().parents[2] / "alembic.ini")
+)
 RUNS = 12  # six months at two runs a month
 FORM_ENDPOINT = "https://formspree.io/f/"
 

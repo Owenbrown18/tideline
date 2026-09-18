@@ -55,7 +55,7 @@ jobs:
       - name: Point both functions at the new image
         run: |
           image="${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}"
-          for fn in tideline-run tideline-web; do
+          for fn in tideline-run tideline-web tideline-demo; do
             aws lambda update-function-code --function-name "$fn" --image-uri "$image" >/dev/null
             aws lambda wait function-updated-v2 --function-name "$fn"
             echo "$fn now runs $image"
