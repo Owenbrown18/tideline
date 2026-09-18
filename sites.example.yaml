@@ -30,3 +30,6 @@ sites:
     checks:
       domain: false                       # switch a check kind off for this site
     spam_ignore: ["payday loans"]         # a spam marker that is legitimate on this site
+    # The contact page. Left out, the form check finds it by following the site's
+    # own navigation from the home page. Set to "" for a site with no form at all.
+    contact_url: https://example.com/get-in-touch

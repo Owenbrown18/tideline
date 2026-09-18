@@ -15,6 +15,7 @@ and the like answer those without recording a submission. A form posting to the
 site's own API route is treated the same way.
 """
 
+import re
 from typing import Any
 from urllib.parse import urljoin, urlparse
 
@@ -24,6 +25,11 @@ from sitewatch.checks.base import Clients, Config, Result
 
 FORM_TIMEOUT = 10.0
 
+# How a contact page is usually linked. Checked against the URL path, then
+# against the link text, in this order.
+CONTACT_PATHS = ("/contact", "/contact-us", "/contactus", "/get-in-touch", "/enquire", "/booking")
+CONTACT_WORDS = ("contact", "get in touch", "enquire", "enquiry", "book", "quote")
+
 # Endpoint responses that mean "this exists": anything that is not a 404/410,
 # and not a server error. Form backends answer OPTIONS or GET with 200, 204,
 # 405 (method not allowed, but the route exists) or 422 (validation), all of
@@ -31,10 +37,37 @@ FORM_TIMEOUT = 10.0
 ENDPOINT_MISSING = (404, 410)
 
 
+def contact_page_candidates(html: str, base_url: str) -> list[str]:
+    """Links on a page that look like they lead to a contact page, best first.
+
+    Assuming /contact was wrong on five of the eleven live sites (2026-09-17):
+    some put the form on the home page, others use /booking or /enquire. The
+    check now follows the site's own navigation instead.
+    """
+    host = urlparse(base_url).netloc
+    anchors = re.findall(
+        r"""<a\b[^>]*?\bhref\s*=\s*["']([^"']+)["'][^>]*>(.*?)</a>""",
+        html,
+        re.IGNORECASE | re.DOTALL,
+    )
+    by_path: list[str] = []
+    by_text: list[str] = []
+    for href, text in anchors:
+        absolute = urljoin(base_url, href.strip())
+        if urlparse(absolute).netloc != host:
+            continue
+        path = urlparse(absolute).path.rstrip("/").lower() or "/"
+        words = re.sub(r"<[^>]+>", " ", text).strip().lower()
+        if any(path.endswith(candidate) for candidate in CONTACT_PATHS):
+            by_path.append(absolute.split("#")[0])
+        elif any(word in words for word in CONTACT_WORDS):
+            by_text.append(absolute.split("#")[0])
+    ordered = by_path + by_text
+    return list(dict.fromkeys(ordered))
+
+
 def find_forms(html: str) -> list[dict[str, Any]]:
     """Every <form> in the page, with its action, method and field names."""
-    import re
-
     forms = []
     for match in re.finditer(r"<form\b(.*?)>(.*?)</form>", html, re.IGNORECASE | re.DOTALL):
         attributes, body = match.group(1), match.group(2)
@@ -87,34 +120,64 @@ async def probe_endpoint(client: httpx.AsyncClient, url: str) -> tuple[int | Non
 
 async def run(config: Config, clients: Clients) -> Result | None:
     domain: str = config["domain"]
-    page_url: str = config.get("contact_url") or urljoin(f"https://{domain}/", "contact")
+    configured: str | None = config.get("contact_url")
+    home_url: str = config.get("url") or f"https://{domain}/"
 
-    page = await clients.pages.fetch(page_url)
-    if page.error is not None:
-        return None  # unreachable site: the uptime check owns that
-    if page.status_code is not None and page.status_code >= 400:
-        return Result(
-            "fail",
-            f"the contact page {page_url} returns HTTP {page.status_code}",
-            {"contact_url": page_url, "status_code": page.status_code},
-        )
-    if page.body is None:
-        return None
+    if configured:
+        # Told where the form is: a missing page there is a real failure.
+        page = await clients.pages.fetch(configured)
+        if page.error is not None:
+            return None
+        if page.status_code is not None and page.status_code >= 400:
+            return Result(
+                "fail",
+                f"the contact page {configured} returns HTTP {page.status_code}",
+                {"contact_url": configured, "status_code": page.status_code},
+            )
+        if page.body is None:
+            return None
+        searched = [configured]
+        found_on, body = configured, page.body
+        contact_forms = [f for f in find_forms(body) if looks_like_a_contact_form(f)]
+        forms = find_forms(body)
+    else:
+        # Not told: follow the site's own navigation, starting at the home page,
+        # which is also where single-page sites keep their form.
+        home = await clients.pages.fetch(home_url)
+        if not home.ok or home.body is None:
+            return None
+        searched = [home_url]
+        found_on, body = home_url, home.body
+        forms = find_forms(home.body)
+        contact_forms = [f for f in forms if looks_like_a_contact_form(f)]
 
-    forms = find_forms(page.body)
-    contact_forms = [form for form in forms if looks_like_a_contact_form(form)]
+        if not contact_forms:
+            for candidate in contact_page_candidates(home.body, home_url)[:3]:
+                searched.append(candidate)
+                candidate_page = await clients.pages.fetch(candidate)
+                if not candidate_page.ok or candidate_page.body is None:
+                    continue
+                candidate_forms = find_forms(candidate_page.body)
+                matches = [f for f in candidate_forms if looks_like_a_contact_form(f)]
+                if matches:
+                    found_on, body = candidate, candidate_page.body
+                    forms, contact_forms = candidate_forms, matches
+                    break
+
+    page_url = found_on
     detail: dict[str, Any] = {
         "contact_url": page_url,
-        "final_url": page.final_url,
+        "pages_searched": searched,
         "forms_found": len(forms),
         "contact_forms_found": len(contact_forms),
     }
 
     if not contact_forms:
+        where = configured or f"{len(searched)} page(s) starting at {home_url}"
         return Result(
             "fail",
-            f"no contact form found on {page_url}"
-            + (f" ({len(forms)} other form(s) on the page)" if forms else ""),
+            f"no contact form found on {where}"
+            + (f" ({len(forms)} other form(s) seen)" if forms else ""),
             detail,
         )
 
@@ -131,7 +194,7 @@ async def run(config: Config, clients: Clients) -> Result | None:
             detail,
         )
 
-    endpoint = urljoin(page.final_url, action)
+    endpoint = urljoin(page_url, action)
     detail["endpoint"] = endpoint
     status, error = await probe_endpoint(clients.http, endpoint)
     detail["endpoint_status"] = status

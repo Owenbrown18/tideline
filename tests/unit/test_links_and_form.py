@@ -9,6 +9,9 @@ from sitewatch.checks.form import find_forms, looks_like_a_contact_form
 from sitewatch.checks.links import extract_links, same_host
 
 SITE = "https://example.ca/"
+CONTACT = "https://example.ca/contact"
+# Most tests point the check straight at the contact page; discovery has its own.
+CONFIGURED = {"domain": "example.ca", "contact_url": CONTACT}
 CONTACT_HTML = """
 <h1>Contact</h1>
 <form action="https://formspree.io/f/abc123" method="post">
@@ -189,7 +192,7 @@ async def test_form_and_endpoint_healthy(make_clients):
     respx.get("https://example.ca/contact").respond(200, html=CONTACT_HTML)
     endpoint = respx.options("https://formspree.io/f/abc123").respond(200)
 
-    result = await form.run({"domain": "example.ca"}, make_clients())
+    result = await form.run(CONFIGURED, make_clients())
     assert result.status == "ok"
     assert result.detail["endpoint"] == "https://formspree.io/f/abc123"
     assert endpoint.called
@@ -202,14 +205,14 @@ async def test_the_form_is_never_submitted(make_clients):
     posted = respx.post("https://formspree.io/f/abc123").respond(200)
     respx.options("https://formspree.io/f/abc123").respond(204)
 
-    await form.run({"domain": "example.ca"}, make_clients())
+    await form.run(CONFIGURED, make_clients())
     assert posted.call_count == 0
 
 
 @respx.mock
 async def test_missing_form_fails(make_clients):
     respx.get("https://example.ca/contact").respond(200, html="<h1>Contact</h1><p>Call us.</p>")
-    result = await form.run({"domain": "example.ca"}, make_clients())
+    result = await form.run(CONFIGURED, make_clients())
     assert result.status == "fail"
     assert "no contact form" in result.summary
 
@@ -217,7 +220,7 @@ async def test_missing_form_fails(make_clients):
 @respx.mock
 async def test_contact_page_404_fails(make_clients):
     respx.get("https://example.ca/contact").respond(404)
-    result = await form.run({"domain": "example.ca"}, make_clients())
+    result = await form.run(CONFIGURED, make_clients())
     assert result.status == "fail"
     assert "HTTP 404" in result.summary
 
@@ -229,7 +232,7 @@ async def test_dead_endpoint_fails(make_clients):
     respx.head("https://formspree.io/f/abc123").respond(404)
     respx.get("https://formspree.io/f/abc123").respond(404)
 
-    result = await form.run({"domain": "example.ca"}, make_clients())
+    result = await form.run(CONFIGURED, make_clients())
     assert result.status == "fail"
     assert "returns HTTP 404" in result.summary
 
@@ -242,7 +245,7 @@ async def test_endpoint_that_only_accepts_post_is_fine(make_clients):
     respx.head("https://formspree.io/f/abc123").respond(405)
     respx.get("https://formspree.io/f/abc123").respond(405)
 
-    result = await form.run({"domain": "example.ca"}, make_clients())
+    result = await form.run(CONFIGURED, make_clients())
     assert result.status == "ok"
 
 
@@ -251,7 +254,7 @@ async def test_unreachable_endpoint_fails(make_clients):
     respx.get("https://example.ca/contact").respond(200, html=CONTACT_HTML)
     respx.options("https://formspree.io/f/abc123").mock(side_effect=httpx.ConnectError("no route"))
 
-    result = await form.run({"domain": "example.ca"}, make_clients())
+    result = await form.run(CONFIGURED, make_clients())
     assert result.status == "fail"
     assert "unreachable" in result.summary
 
@@ -261,7 +264,7 @@ async def test_form_with_no_action_is_ok(make_clients):
     html = CONTACT_HTML.replace(' action="https://formspree.io/f/abc123"', "")
     respx.get("https://example.ca/contact").respond(200, html=html)
 
-    result = await form.run({"domain": "example.ca"}, make_clients())
+    result = await form.run(CONFIGURED, make_clients())
     assert result.status == "ok"
     assert result.detail["endpoint"] is None
 
@@ -275,3 +278,54 @@ async def test_a_custom_contact_url_is_used(make_clients):
         {"domain": "example.ca", "contact_url": "https://example.ca/get-in-touch"}, make_clients()
     )
     assert result.status == "ok"
+
+
+# --- finding the contact page ----------------------------------------------------
+
+
+@respx.mock
+async def test_a_form_on_the_home_page_is_found(make_clients):
+    """Single-page sites keep the form on the home page."""
+    respx.get(SITE).respond(200, html=page() + CONTACT_HTML)
+    respx.options("https://formspree.io/f/abc123").respond(200)
+
+    result = await form.run({"domain": "example.ca"}, make_clients())
+    assert result.status == "ok"
+    assert result.detail["contact_url"] == SITE
+
+
+@respx.mock
+async def test_the_contact_page_is_found_by_following_the_navigation(make_clients):
+    respx.get(SITE).respond(200, html='<a href="/booking">Book a stay</a>')
+    respx.get("https://example.ca/booking").respond(200, html=CONTACT_HTML)
+    respx.options("https://formspree.io/f/abc123").respond(200)
+
+    result = await form.run({"domain": "example.ca"}, make_clients())
+    assert result.status == "ok"
+    assert result.detail["contact_url"] == "https://example.ca/booking"
+    assert SITE in result.detail["pages_searched"]
+
+
+@respx.mock
+async def test_no_form_anywhere_fails(make_clients):
+    respx.get(SITE).respond(200, html='<a href="/about">About</a><p>Call us</p>')
+    respx.get("https://example.ca/about").respond(200, html="<p>About us</p>")
+
+    result = await form.run({"domain": "example.ca"}, make_clients())
+    assert result.status == "fail"
+    assert "no contact form found" in result.summary
+
+
+def test_contact_candidates_prefer_paths_then_text_and_stay_on_the_site():
+    from sitewatch.checks.form import contact_page_candidates
+
+    html = """
+      <a href="/about">About</a>
+      <a href="/get-in-touch">Say hello</a>
+      <a href="https://facebook.com/x">Contact us on Facebook</a>
+      <a href="/enquiries">Enquire now</a>
+    """
+    assert contact_page_candidates(html, SITE) == [
+        "https://example.ca/get-in-touch",
+        "https://example.ca/enquiries",
+    ]
