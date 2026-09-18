@@ -157,6 +157,10 @@ a:hover { color: var(--up-text); }
 .list-row { display: grid; grid-template-columns: 20px minmax(180px, 260px) 1fr auto; column-gap: 20px; align-items: center; padding: 14px 22px; border-bottom: 1px solid var(--line-soft); text-decoration: none; color: inherit; }
 .list-row:last-child { border-bottom: 0; }
 .list-row:hover { background: #fbfaf7; color: inherit; }
+/* A row's last item: its date line (.meta), or a short figure like "up 2/2"
+   (.figure), which always sits in the row's last column. */
+.list-row .meta { font-size: 13px; white-space: nowrap; }
+.list-row .figure { grid-column: -2 / -1; justify-self: end; font-size: 14px; white-space: nowrap; }
 .month { display: flex; flex-direction: column; gap: 12px; }
 .month h2 { margin: 0; font-family: var(--serif); font-variation-settings: "opsz" 144; font-weight: 600; font-size: 30px; letter-spacing: -0.03em; }
 
@@ -183,6 +187,9 @@ a:hover { color: var(--up-text); }
   .list-row { grid-template-columns: 20px minmax(0, 1fr) auto; padding: 14px 16px; column-gap: 14px; }
   .list-row > * { min-width: 0; }
   .list-row .what { grid-column: 2 / 4; }
+  /* Below the description, like the overview's "Needs you" rows, instead of
+     falling into the 20 px shape column and stacking a word per line. */
+  .list-row .meta { grid-column: 2 / 4; white-space: normal; }
   .stats { gap: 28px; }
   .stats dd { font-size: 34px; }
 }

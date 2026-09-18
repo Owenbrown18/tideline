@@ -391,3 +391,66 @@ async def test_a_report_describes_its_own_month(sessionmaker, site_with_a_day):
         report = await build_report(session, site_with_a_day["site"], 2026, 9)
     tls_line = next(w for w in report.watched if "certificate" in w.text)
     assert tls_line.tone == "up"  # in September it was fine
+
+
+# --- phone layout of list rows (bug found 2026-09-18) --------------------------------
+
+
+def _row_endings(html: str) -> list[str]:
+    """The class of the last element inside each .list-row."""
+    from html.parser import HTMLParser
+
+    endings: list[str] = []
+
+    class Rows(HTMLParser):
+        depth = 0
+        last = ""
+
+        def handle_starttag(self, tag, attrs):
+            classes = dict(attrs).get("class") or ""
+            if "list-row" in classes.split():
+                self.depth, self.last = 1, ""
+            elif self.depth:
+                if self.depth == 1:
+                    self.last = classes
+                if tag not in ("br", "img", "input"):
+                    self.depth += 1
+
+        def handle_endtag(self, tag):
+            if self.depth:
+                self.depth -= 1
+                if self.depth == 0:
+                    endings.append(self.last)
+
+    Rows().feed(html)
+    return endings
+
+
+async def test_list_rows_end_in_a_meta_line_or_a_figure(client, site_with_a_day, sessionmaker):
+    """On phones the row's last item used to fall into the 20 px shape column and
+    stack a word per line ("found / 15 / Sep"). It now carries a class the
+    stylesheet places: .meta under the description, .figure in the last column."""
+    async with sessionmaker() as session, session.begin():
+        await rollup_day(session, DAY)
+    site_id = site_with_a_day["site"]
+
+    reports = (await client.get("/reports", auth=DASH)).text
+    assert _row_endings(reports) and all("figure" in e for e in _row_endings(reports))
+    assert '<span class="what"></span>' not in reports  # no empty spacer column
+
+    for path in ("/incidents/view", f"/sites/{site_id}/view"):
+        page = (await client.get(path, auth=DASH)).text
+        endings = _row_endings(page)
+        assert endings and all("meta" in e for e in endings), path
+
+
+def test_the_phone_layout_puts_the_meta_line_under_the_description():
+    from pathlib import Path
+
+    import tideline.api
+
+    css = (Path(tideline.api.__file__).parent / "static" / "tideline.css").read_text()
+    phone = css[css.index("@media (max-width: 860px)") :]
+    phone = phone[: phone.index("\n}\n")]
+    assert ".list-row .meta { grid-column: 2 / 4;" in phone
+    assert ".list-row .figure { grid-column: -2 / -1;" in css

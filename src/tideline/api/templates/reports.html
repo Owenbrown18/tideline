@@ -17,8 +17,7 @@
     <a class="list-row" href="/reports/{{ s.id }}/{{ month.key }}" data-report="{{ s.name }}, {{ month.label }}">
       {{ m.shape(ut) }}
       <span class="site-name"><strong>{{ s.name }}</strong><span class="mono">{{ s.domain }}</span></span>
-      <span class="what"></span>
-      <span class="mono w-{{ ut }}" style="font-size: 14px;">{{ 'up ' ~ s.up_runs ~ '/' ~ s.runs if s.runs else '–' }}</span>
+      <span class="figure mono w-{{ ut }}">{{ 'up ' ~ s.up_runs ~ '/' ~ s.runs if s.runs else '–' }}</span>
     </a>
     {% endfor %}
   </div>
