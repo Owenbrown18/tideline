@@ -30,8 +30,9 @@ log fetch_files
 aws s3 cp "s3://$SITEWATCH_BUCKET/deploy/compose.prod.yaml" /opt/sitewatch/compose.prod.yaml --region "$AWS_REGION"
 aws s3 cp "s3://$SITEWATCH_BUCKET/deploy/Caddyfile" /opt/sitewatch/Caddyfile --region "$AWS_REGION"
 aws s3 cp "s3://$SITEWATCH_BUCKET/deploy/backup.sh" /opt/sitewatch/backup.sh --region "$AWS_REGION"
+aws s3 cp "s3://$SITEWATCH_BUCKET/deploy/restore.sh" /opt/sitewatch/restore.sh --region "$AWS_REGION"
 aws s3 cp "s3://$SITEWATCH_BUCKET/deploy/cloudwatch-agent.json" /opt/sitewatch/cloudwatch-agent.json --region "$AWS_REGION"
-chmod +x /opt/sitewatch/backup.sh
+chmod +x /opt/sitewatch/backup.sh /opt/sitewatch/restore.sh
 
 log write_env
 # Secrets come from SSM Parameter Store at deploy time: they are never in the

@@ -294,6 +294,24 @@ async def resolve_dns_incidents(session: AsyncSession, site_id: int, now: dateti
     return len(open_dns)
 
 
+async def recent_rollups(session: AsyncSession, site_id: int, days: int = 30) -> list[Any]:
+    """The last `days` daily rollups for a site, newest first.
+
+    Read from `daily_rollups`, so the 30-day view still works after raw results
+    older than 90 days have been purged.
+    """
+    from sitewatch.db.models import DailyRollup
+
+    since = (datetime.now(UTC) - timedelta(days=days)).date()
+    return list(
+        await session.scalars(
+            select(DailyRollup)
+            .where(DailyRollup.site_id == site_id, DailyRollup.day >= since)
+            .order_by(DailyRollup.day.desc())
+        )
+    )
+
+
 async def recent_results(session: AsyncSession, site_id: int, limit: int = 50) -> list[Row[Any]]:
     return list(
         await session.execute(

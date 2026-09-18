@@ -57,12 +57,14 @@ jobs:
       - name: Tests (pytest)
         run: uv run pytest -q
 
+      # The service container only creates sitewatch_test, so the smoke test uses
+      # it too (found by running this workflow locally with `act`, 2026-09-18).
       - name: sites.example.yaml still seeds
         run: |
           uv run sitewatch migrate
           uv run sitewatch seed sites.example.yaml
         env:
-          SITEWATCH_DATABASE_URL: postgresql+psycopg://sitewatch:sitewatch@localhost:5432/sitewatch
+          SITEWATCH_DATABASE_URL: postgresql+psycopg://sitewatch:sitewatch@localhost:5432/sitewatch_test
 
   image:
     runs-on: ubuntu-latest

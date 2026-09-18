@@ -183,6 +183,7 @@ async def dashboard_site(request: Request, site_id: int, session: Session) -> An
             "uptime": await queries.uptime_stats(session, site_id, 30),
             "incidents": await queries.incidents(session, site_id=site_id, limit=20),
             "results": await queries.recent_results(session, site_id, limit=50),
+            "daily": await queries.recent_rollups(session, site_id, days=30),
             "version": __version__,
         },
     )

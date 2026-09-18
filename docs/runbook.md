@@ -141,20 +141,26 @@ docker compose --env-file compose.env -f compose.prod.yaml exec -T postgres \
 aws s3 cp /tmp/sitewatch-$(date +%F).sql.gz s3://sitewatch-data-053578820490/backups/
 ```
 
-Restore into a scratch database and check it, which is the only way to know a
-backup is real:
+Check a backup (restores it into a scratch database, counts the rows, drops it).
+This is harmless, and the only way to know a backup is real:
 
 ```bash
-aws s3 cp s3://sitewatch-data-053578820490/backups/<file>.sql.gz /tmp/
-docker compose --env-file compose.env -f compose.prod.yaml exec -T postgres \
-  psql -U sitewatch -c "CREATE DATABASE restore_test;"
-gunzip -c /tmp/<file>.sql.gz | docker compose --env-file compose.env -f compose.prod.yaml exec -T postgres \
-  psql -U sitewatch -d restore_test
-docker compose --env-file compose.env -f compose.prod.yaml exec -T postgres \
-  psql -U sitewatch -d restore_test -c "select count(*) from check_results;"
-docker compose --env-file compose.env -f compose.prod.yaml exec -T postgres \
-  psql -U sitewatch -c "DROP DATABASE restore_test;"
+aws ssm start-session --target i-010dc8609621b4d18
+sudo -i
+/opt/sitewatch/restore.sh                     # the newest backup
+/opt/sitewatch/restore.sh --check <file>      # a named one
 ```
+
+Replace the live database with a backup (stops the api and worker, rebuilds the
+database from the dump, starts them again, and asks you to type `replace`):
+
+```bash
+/opt/sitewatch/restore.sh --replace latest
+/opt/sitewatch/restore.sh --replace sitewatch-2026-09-17T22-58-10Z.sql.gz
+```
+
+`--replace` was tested on a local stack on 2026-09-18: every result deleted to
+simulate damage, then restored from the dump, with the app restarting by itself.
 
 Record the date, the file and the row count here each time a restore is tested.
 

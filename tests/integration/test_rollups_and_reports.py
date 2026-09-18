@@ -277,3 +277,27 @@ async def test_worker_schedules_the_daily_and_monthly_jobs(sessionmaker):
         worker.scheduler.shutdown(wait=False)
         await worker.http.aclose()
         await worker.engine.dispose()
+
+
+async def test_site_page_shows_the_30_day_view(client, sessionmaker, site_with_a_day):
+    from datetime import date as date_
+
+    async with sessionmaker() as session, session.begin():
+        today = datetime.now(UTC).date()
+        # A rollup for a recent day, so it falls inside the 30-day window.
+        await rollup_day(session, DAY)
+        from sqlalchemy import update
+
+        await session.execute(update(DailyRollup).values(day=today - timedelta(days=1)))
+
+    page = await client.get(f"/sites/{site_with_a_day['site']}/view", auth=DASH)
+    assert page.status_code == 200
+    assert "Last 30 days" in page.text
+    assert "91.67%" in page.text
+    assert "10 min" in page.text
+    assert isinstance(today, date_)
+
+
+async def test_site_page_without_rollups_says_so(client, site_with_a_day):
+    page = await client.get(f"/sites/{site_with_a_day['site']}/view", auth=DASH)
+    assert "No daily summaries yet" in page.text

@@ -28,6 +28,32 @@
     {% endfor %}
   </table>
 
+  <h2>Last 30 days</h2>
+  {% if daily %}
+    <table>
+      <tr><th>Day</th><th>Uptime</th><th>p50</th><th>p95</th><th>Incidents</th><th>Downtime</th></tr>
+      {% for row in daily %}
+        <tr>
+          <td class="muted">{{ row.day.strftime('%a %d %b') }}</td>
+          <td>
+            {% if row.uptime_percent is none %}-
+            {% else %}
+              <span class="pill {{ 'ok' if row.uptime_percent >= 99.9 else ('warn' if row.uptime_percent >= 99 else 'fail') }}">
+                {{ '%.2f%%' % row.uptime_percent }}
+              </span>
+            {% endif %}
+          </td>
+          <td class="muted">{{ row.p50_ms ~ ' ms' if row.p50_ms is not none else '-' }}</td>
+          <td class="muted">{{ row.p95_ms ~ ' ms' if row.p95_ms is not none else '-' }}</td>
+          <td>{{ row.incidents_opened }}</td>
+          <td class="muted">{{ (row.downtime_seconds // 60) ~ ' min' if row.downtime_seconds else '-' }}</td>
+        </tr>
+      {% endfor %}
+    </table>
+  {% else %}
+    <p class="muted">No daily summaries yet. The first is written at 00:20 UTC.</p>
+  {% endif %}
+
   <h2>Incidents</h2>
   {% if incidents %}
     <table>
