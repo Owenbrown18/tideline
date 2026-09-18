@@ -2,111 +2,119 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>{{ report.site_name }} · {{ report.month_name }} · Sitewatch</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ report.month_name }} report · {{ report.site_name }}</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=IBM+Plex+Mono:wght@400&family=Inter:wght@400;600;700&display=swap">
 </head>
-<!-- Inline styles and a table layout: this is written to survive being
-     forwarded by email, where stylesheets and modern CSS do not travel. -->
-<body style="margin:0;padding:24px;background:#f6f7f9;font:15px/1.55 -apple-system,'Segoe UI',system-ui,sans-serif;color:#1a1d26;">
-  <div style="max-width:640px;margin:0 auto;background:#fff;border:1px solid #e2e5ea;border-radius:10px;padding:28px;">
+{#
+  Written to be forwarded by email: inline styles, table layout, and font stacks
+  that fall back gracefully (Gmail ignores web fonts and shows Georgia instead
+  of Fraunces, which is fine). Tideline's colours from the brand proposal.
+#}
+{%- macro shape(tone) -%}
+{%- if tone == 'up' -%}<svg width="14" height="14" viewBox="0 0 14 14" role="img" aria-label="Fine"><circle cx="7" cy="7" r="6" fill="#2f6fa6"/></svg>
+{%- elif tone == 'warn' -%}<svg width="15" height="14" viewBox="0 0 15 14" role="img" aria-label="Needs attention"><path d="M7.5 0.8 L14.4 13.2 H0.6 Z" fill="#a8740f"/></svg>
+{%- elif tone == 'down' -%}<svg width="13" height="13" viewBox="0 0 13 13" role="img" aria-label="Not working"><rect x="0.5" y="0.5" width="12" height="12" rx="1.5" fill="#c0432f"/></svg>
+{%- else -%}<svg width="14" height="14" viewBox="0 0 14 14" role="img" aria-label="Not checked yet"><circle cx="7" cy="7" r="5.2" fill="none" stroke="#848d89" stroke-width="1.6"/></svg>
+{%- endif -%}
+{%- endmacro -%}
+{%- set serif = "Fraunces, Georgia, 'Times New Roman', serif" -%}
+{%- set sans = "Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" -%}
+{%- set mono = "'IBM Plex Mono', Menlo, Consolas, monospace" -%}
+{%- set label = "font-family:" ~ sans ~ ";font-size:11px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:#636c68;" -%}
+<body style="margin:0;padding:0;background:#e9e7e1;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#e9e7e1;">
+<tr><td align="center" style="padding:32px 12px;">
+<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:100%;max-width:600px;background:#ffffff;border-radius:4px;overflow:hidden;">
 
-    <p style="margin:0 0 4px;color:#5b6373;font-size:13px;letter-spacing:.06em;text-transform:uppercase;">
-      {{ report.month_name }} website report
-    </p>
-    <h1 style="margin:0 0 2px;font-size:22px;">{{ report.site_name }}</h1>
-    <p style="margin:0 0 24px;color:#5b6373;">{{ report.domain }}</p>
-
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:24px;">
+  <tr><td style="background:#0b1826;background-image:radial-gradient(ellipse 80% 120% at 12% 0%,#2c4a6e 0%,#1b3452 40%,#0b1826 85%);padding:34px 40px 40px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
       <tr>
-        <td style="padding:14px;background:#f6f7f9;border-radius:8px;" width="50%">
-          <div style="color:#5b6373;font-size:13px;">Uptime</div>
-          <div style="font-size:26px;font-weight:600;">{{ report.uptime_text }}</div>
+        <td style="font-family:{{ serif }};font-weight:700;font-size:22px;letter-spacing:-0.04em;color:#f7f6f3;">Tideline<span style="color:#86b0d6;">.</span></td>
+        <td align="right" style="{{ label }}color:#a9b8c6;">{{ report.month_name }}</td>
+      </tr>
+    </table>
+    <div style="height:26px;"></div>
+    <div style="font-family:{{ sans }};font-size:14px;color:#a9b8c6;">Monthly website report</div>
+    <div style="font-family:{{ serif }};font-weight:600;font-size:40px;line-height:1.05;letter-spacing:-0.04em;color:#f7f6f3;padding:6px 0 6px;">{{ report.site_name }}</div>
+    <div style="font-family:{{ mono }};font-size:13px;color:#a9b8c6;">{{ report.domain }}</div>
+  </td></tr>
+
+  <tr><td style="padding:34px 40px 6px;">
+    <div style="{{ label }}">Uptime</div>
+    {%- set good = report.uptime_percent is not none and report.uptime_percent >= 99.9 %}
+    <div style="font-family:{{ serif }};font-weight:700;font-size:84px;line-height:1;letter-spacing:-0.045em;color:{{ '#255d8c' if good or report.uptime_percent is none else '#a8321f' }};padding:6px 0 10px;">{{ report.uptime_text }}</div>
+    <div style="font-family:{{ sans }};font-size:15px;line-height:1.55;color:#3a403e;">{{ report.uptime_sentence }}</div>
+  </td></tr>
+
+  <tr><td style="padding:24px 40px 6px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+      <tr>
+        <td width="50%" valign="top">
+          <div style="font-family:{{ serif }};font-weight:600;font-size:32px;letter-spacing:-0.04em;color:#1e1e1e;">{{ report.p50_ms ~ ' ms' if report.p50_ms is not none else '–' }}</div>
+          <div style="{{ label }}padding-top:4px;">Typical response time</div>
         </td>
-        <td width="12"></td>
-        <td style="padding:14px;background:#f6f7f9;border-radius:8px;" width="50%">
-          <div style="color:#5b6373;font-size:13px;">Downtime</div>
-          <div style="font-size:26px;font-weight:600;">{{ report.downtime_text }}</div>
+        <td width="50%" valign="top">
+          <div style="font-family:{{ serif }};font-weight:600;font-size:32px;letter-spacing:-0.04em;color:#1e1e1e;">{{ report.downtime_text|capitalize }}</div>
+          <div style="{{ label }}padding-top:4px;">Downtime</div>
         </td>
       </tr>
     </table>
+  </td></tr>
 
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin-bottom:26px;">
+  {% if report.coming_up %}
+  <tr><td style="padding:30px 40px 6px;">
+    <div style="{{ label }}padding-bottom:8px;">Coming up</div>
+    {% for note in report.coming_up %}
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#fbf6ec;border-radius:10px;margin-bottom:8px;">
       <tr>
-        <td style="padding:8px 0;border-bottom:1px solid #eef0f3;color:#5b6373;">Checks run</td>
-        <td style="padding:8px 0;border-bottom:1px solid #eef0f3;text-align:right;">{{ "{:,}".format(report.checks_run) }}</td>
-      </tr>
-      <tr>
-        <td style="padding:8px 0;border-bottom:1px solid #eef0f3;color:#5b6373;">Typical response time (p50)</td>
-        <td style="padding:8px 0;border-bottom:1px solid #eef0f3;text-align:right;">{{ report.p50_ms or "-" }} ms</td>
-      </tr>
-      <tr>
-        <td style="padding:8px 0;border-bottom:1px solid #eef0f3;color:#5b6373;">Slowest typical (p95)</td>
-        <td style="padding:8px 0;border-bottom:1px solid #eef0f3;text-align:right;">{{ report.p95_ms or "-" }} ms</td>
-      </tr>
-      <tr>
-        <td style="padding:8px 0;color:#5b6373;">Days covered</td>
-        <td style="padding:8px 0;text-align:right;">{{ report.days_covered }} of {{ report.days_in_month }}</td>
+        <td width="34" valign="top" style="padding:18px 0 18px 20px;">{{ shape('warn') }}</td>
+        <td style="padding:16px 20px 16px 8px;font-family:{{ sans }};font-size:15px;line-height:1.55;color:#3a403e;">{{ note }}</td>
       </tr>
     </table>
+    {% endfor %}
+  </td></tr>
+  {% endif %}
 
-    <h2 style="font-size:15px;margin:0 0 10px;">
-      {% if report.incidents %}What happened{% else %}Nothing went wrong{% endif %}
-    </h2>
-    {% if report.incidents %}
-      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
-        {% for incident in report.incidents %}
-          <tr>
-            <td style="padding:10px 0;border-bottom:1px solid #eef0f3;">
-              <div style="font-weight:600;">
-                {{ incident.opened_at.strftime('%d %b, %H:%M') }} UTC
-                <span style="font-weight:400;color:#5b6373;">
-                  {% if incident.resolved_at %}
-                    · resolved after {{ format_duration(incident.resolved_at - incident.opened_at) }}
-                  {% else %}
-                    · still open
-                  {% endif %}
-                </span>
-              </div>
-              <div style="color:#5b6373;">{{ incident.check_kind }}: {{ incident.summary }}</div>
-            </td>
-          </tr>
-        {% endfor %}
-      </table>
-    {% else %}
-      <p style="margin:0 0 8px;color:#5b6373;">
-        No incidents. The site answered every check, its certificate and domain are valid,
-        and its DNS matched the recorded baseline all month.
-      </p>
-    {% endif %}
+  {# Only real events here. Standing gaps (a missing DMARC record) show in "What was watched". #}
+  {% set events = report.incidents|selectattr('severity', 'equalto', 'critical')|list %}
+  {% if events %}
+  <tr><td style="padding:30px 40px 6px;">
+    <div style="{{ label }}padding-bottom:6px;">What happened</div>
+    {% for i in events %}
+    <div style="padding:12px 0;border-bottom:1px solid #efede8;font-family:{{ sans }};font-size:15px;line-height:1.5;color:#1e1e1e;">
+      <strong style="font-weight:600;">{{ i.opened_at|local('%-d %B, %H:%M') }}</strong>
+      <span style="color:#636c68;">{% if i.resolved_at %} · fixed after {{ format_duration(i.resolved_at - i.opened_at) }}{% else %} · still open{% endif %}</span><br>
+      <span style="color:#3a403e;">{{ i.check_kind|checkname }}: {{ i.summary }}</span>
+    </div>
+    {% endfor %}
+  </td></tr>
+  {% endif %}
 
-    {% if report.daily %}
-      <h2 style="font-size:15px;margin:26px 0 10px;">Day by day</h2>
-      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;font-size:13px;">
-        <tr style="color:#5b6373;text-align:left;">
-          <th style="padding:6px 0;font-weight:600;">Day</th>
-          <th style="padding:6px 0;font-weight:600;text-align:right;">Uptime</th>
-          <th style="padding:6px 0;font-weight:600;text-align:right;">p50</th>
-          <th style="padding:6px 0;font-weight:600;text-align:right;">p95</th>
-          <th style="padding:6px 0;font-weight:600;text-align:right;">Checks</th>
-        </tr>
-        {% for row in report.daily %}
-          <tr>
-            <td style="padding:5px 0;border-top:1px solid #eef0f3;">{{ row.day.strftime('%d %b') }}</td>
-            <td style="padding:5px 0;border-top:1px solid #eef0f3;text-align:right;">
-              {{ "%.2f%%"|format(row.uptime_percent) if row.uptime_percent is not none else "-" }}
-            </td>
-            <td style="padding:5px 0;border-top:1px solid #eef0f3;text-align:right;">{{ row.p50_ms or "-" }}</td>
-            <td style="padding:5px 0;border-top:1px solid #eef0f3;text-align:right;">{{ row.p95_ms or "-" }}</td>
-            <td style="padding:5px 0;border-top:1px solid #eef0f3;text-align:right;">{{ row.results }}</td>
-          </tr>
-        {% endfor %}
-      </table>
-    {% endif %}
+  <tr><td style="padding:30px 40px 10px;">
+    <div style="{{ label }}padding-bottom:4px;">What was watched</div>
+    {% for w in report.watched %}
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-bottom:1px solid #efede8;">
+      <tr>
+        <td width="26" valign="middle" style="padding:12px 0;">{{ shape(w.tone) }}</td>
+        <td style="padding:12px 0;font-family:{{ sans }};font-size:15px;color:#1e1e1e;">{{ w.text }}</td>
+        <td align="right" style="padding:12px 0;font-family:{{ mono }};font-size:13px;color:{{ '#8a5a0f' if w.tone == 'warn' else ('#a8321f' if w.tone == 'down' else '#636c68') }};white-space:nowrap;">{{ w.evidence }}</td>
+      </tr>
+    </table>
+    {% endfor %}
+  </td></tr>
 
-    <p style="margin:26px 0 0;color:#5b6373;font-size:13px;">
-      Checked every five minutes by Sitewatch, OBdesign's monitoring service:
-      uptime and response time, page content, TLS certificate, domain registration,
-      DNS records and email authentication.
-    </p>
-  </div>
+  <tr><td style="padding:28px 40px 34px;border-top:1px solid #efede8;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+      <tr>
+        <td valign="bottom" style="font-family:{{ sans }};font-size:13px;line-height:1.55;color:#636c68;padding-right:20px;">Watched every five minutes by Tideline, the monitoring service behind every OBdesign website.</td>
+        <td align="right" valign="bottom" style="font-family:{{ serif }};font-weight:700;font-size:20px;letter-spacing:-0.04em;color:#0b1f1d;white-space:nowrap;">OB<span style="opacity:0.45;">design</span><span style="color:#7ba49e;">.</span></td>
+      </tr>
+    </table>
+  </td></tr>
+
+</table>
+</td></tr>
+</table>
 </body>
 </html>

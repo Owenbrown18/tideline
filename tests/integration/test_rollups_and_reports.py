@@ -166,13 +166,14 @@ async def test_report_reads_from_the_rollups(sessionmaker, site_with_a_day):
 
     html = render_html(report)
     assert "Daves&#39; Bakery" in html
-    assert "91.67%" in html
+    assert "91.66%" in html
     assert "10 min" in html
     assert "is down: HTTP 503" in html
 
     text = render_text(report)
-    assert "Uptime:          91.67%" in text
-    assert "Incidents (1):" in text
+    assert "Uptime: 91.66%" in text
+    assert "What happened:" in text
+    assert "fixed after 10 min" in text
 
 
 async def test_report_survives_the_raw_results_being_purged(sessionmaker, site_with_a_day):
@@ -191,7 +192,10 @@ async def test_a_quiet_month_says_so(sessionmaker, site_with_a_day):
         report = await build_report(session, site_with_a_day["site"], 2026, 8)
     assert report.incidents == []
     assert report.uptime_text == "no data"
-    assert "Nothing went wrong" in render_html(report)
+    html = render_html(report)
+    assert "Tideline has not watched this site yet this month." in html
+    # Nothing happened, so there is no "What happened" section at all.
+    assert "What happened" not in html
 
 
 async def test_report_page_needs_auth_and_a_real_site(client, site_with_a_day, sessionmaker):
@@ -207,7 +211,7 @@ async def test_report_page_needs_auth_and_a_real_site(client, site_with_a_day, s
     page = await client.get(f"/reports/{site_id}/2026-09", auth=DASH)
     assert page.status_code == 200
     assert "September 2026" in page.text
-    assert "91.67%" in page.text
+    assert "91.66%" in page.text
 
 
 # --- sending a whole month -------------------------------------------------------
@@ -241,7 +245,7 @@ async def test_send_month_sends_one_report_per_active_site(sessionmaker, site_wi
     notifier = RecordingNotifier()
     sent = await send_month(sessionmaker, notifier, 2026, 9)
     assert sent == 1  # the inactive site gets no report
-    assert notifier.reports == ["[Sitewatch] September 2026 report: Daves' Bakery"]
+    assert notifier.reports == ["September 2026 report: Daves' Bakery"]
 
 
 async def test_one_failed_report_does_not_stop_the_rest(sessionmaker, site_with_a_day):
@@ -293,11 +297,24 @@ async def test_site_page_shows_the_30_day_view(client, sessionmaker, site_with_a
     page = await client.get(f"/sites/{site_with_a_day['site']}/view", auth=DASH)
     assert page.status_code == 200
     assert "Last 30 days" in page.text
-    assert "91.67%" in page.text
+    assert "91.66%" in page.text
     assert "10 min" in page.text
     assert isinstance(today, date_)
 
 
 async def test_site_page_without_rollups_says_so(client, site_with_a_day):
     page = await client.get(f"/sites/{site_with_a_day['site']}/view", auth=DASH)
-    assert "No daily summaries yet" in page.text
+    # Only today's live results exist, so the strip is mostly hollow days.
+    assert page.status_code == 200
+    assert "Last 30 days" in page.text
+    assert "Hollow days were before Tideline was watching." in page.text
+
+
+async def test_reports_page_links_each_month(client, site_with_a_day, sessionmaker):
+    async with sessionmaker() as session, session.begin():
+        await rollup_day(session, DAY)
+    page = await client.get("/reports", auth=DASH)
+    assert page.status_code == 200
+    assert "September 2026" in page.text
+    assert f'href="/reports/{site_with_a_day["site"]}/2026-09"' in page.text
+    assert "91.66%" in page.text

@@ -4,6 +4,7 @@ Kept in one place so the JSON endpoints and the HTML pages always agree, and so
 the SQL is easy to read next to the schema.
 """
 
+import math
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -28,6 +29,7 @@ class CheckStatus:
     summary: str | None
     last_checked_at: datetime | None
     duration_ms: int | None
+    detail: dict[str, Any] | None = None
 
 
 @dataclass
@@ -55,7 +57,8 @@ async def _latest_results(session: AsyncSession, site_id: int | None = None) -> 
     sql = text(
         f"""
         SELECT DISTINCT ON (r.check_id)
-               r.check_id, r.status, r.started_at, r.duration_ms, r.detail->>'summary' AS summary
+               r.check_id, r.status, r.started_at, r.duration_ms,
+               r.detail->>'summary' AS summary, r.detail
         FROM check_results r
         JOIN checks c ON c.id = r.check_id
         {where}
@@ -111,6 +114,7 @@ async def site_statuses(session: AsyncSession, site_id: int | None = None) -> li
                     summary=row.summary if row else None,
                     last_checked_at=row.started_at if row else None,
                     duration_ms=row.duration_ms if row else None,
+                    detail=row.detail if row else None,
                 )
             )
         statuses = [c.status for c in site_checks if c.status and c.enabled]
@@ -192,7 +196,8 @@ async def uptime_stats(session: AsyncSession, site_id: int, days: int = 30) -> U
         since=since,
         results=row.results,
         ok=row.ok,
-        uptime_percent=round(100 * row.ok / row.results, 3) if row.results else None,
+        # Rounded down, so 1 failure in 10,000 is 99.99, never a rounded-up 100.0.
+        uptime_percent=math.floor(100_000 * row.ok / row.results) / 1000 if row.results else None,
         p50_ms=round(row.p50) if row.p50 is not None else None,
         p95_ms=round(row.p95) if row.p95 is not None else None,
         incidents=incident_row.incidents,

@@ -12,13 +12,17 @@ from calendar import monthrange
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from sitewatch import brand
 from sitewatch.api import queries
-from sitewatch.db.models import DailyRollup, Site
+from sitewatch.brand import human_date
+from sitewatch.config import get_settings
+from sitewatch.db.models import Check, CheckResult, DailyRollup, Site
 from sitewatch.notify.base import Notifier, format_duration
 from sitewatch.observability.logging import log_event
 from sitewatch.reports.rollups import month_rollups
@@ -49,6 +53,9 @@ class MonthlyReport:
     incidents: list[queries.IncidentView] = field(default_factory=list)
     downtime_seconds: int = 0
     daily: list[DailyRollup] = field(default_factory=list)
+    watched: list["Watched"] = field(default_factory=list)
+    coming_up: list[str] = field(default_factory=list)
+    first_day: date | None = None
 
     @property
     def month_name(self) -> str:
@@ -62,11 +69,116 @@ class MonthlyReport:
 
     @property
     def uptime_text(self) -> str:
-        return f"{self.uptime_percent:.2f}%" if self.uptime_percent is not None else "no data"
+        return brand.percent(self.uptime_percent, empty="no data")
 
     @property
     def subject(self) -> str:
-        return f"[Sitewatch] {self.month_name} report: {self.site_name}"
+        return f"{self.month_name} report: {self.site_name}"
+
+    @property
+    def uptime_sentence(self) -> str:
+        """The line under the big number, in words a client reads."""
+        since = (
+            f" since Tideline started watching it on {human_date(self.first_day, year=False)}"
+            if (
+                self.first_day
+                and (self.first_day.year, self.first_day.month) == (self.year, self.month)
+            )
+            else " all month"
+        )
+        if self.uptime_percent is None:
+            return "Tideline has not watched this site yet this month."
+        if self.uptime_percent >= 99.999:
+            return f"Your website answered every check{since}. It was never down."
+        return (
+            f"Your website was down for {self.downtime_text} in total{since}. "
+            "Every outage is listed below."
+        )
+
+
+@dataclass(frozen=True)
+class Watched:
+    """One line of "What was watched": plain words, a status and the evidence."""
+
+    tone: brand.Tone
+    text: str
+    evidence: str
+
+
+# What each check means to a client, in their words rather than ours: how to
+# say it when it is fine, and how to say it when it is not.
+CLIENT_WORDS: dict[str, tuple[str, str]] = {
+    "uptime": ("The site is up and answers quickly", "The site went down"),
+    "content": (
+        "The page shows your business, and nothing it shouldn't",
+        "The page is not showing what it should",
+    ),
+    "form": ("The contact form can deliver", "The contact form is not delivering"),
+    "links": ("Every link leads somewhere", "A link leads nowhere"),
+    "tls": ("The security certificate is valid", "The security certificate needs attention"),
+    "domain": ("The domain is registered", "The domain needs renewing"),
+    "dns": ("The DNS records have not changed", "The DNS records have changed"),
+    "email_auth": (
+        "Email from your domain is protected from spoofing",
+        "Email from your domain could be spoofed",
+    ),
+}
+
+
+def client_words(kind: str, tone: brand.Tone) -> str:
+    fine, problem = CLIENT_WORDS.get(kind, (brand.check_name(kind), brand.check_name(kind)))
+    return problem if tone in ("warn", "down") else fine
+
+
+def _evidence(check: queries.CheckStatus) -> str:
+    detail = check.detail or {}
+    tone = brand.tone(check.status)
+    if tone == "none":
+        return "not checked yet"
+    if check.kind in ("uptime", "content"):
+        return "every 5 min" if tone == "up" else "failing"
+    if check.kind == "tls" and detail.get("not_after"):
+        return "until " + brand.human_date(datetime.fromisoformat(detail["not_after"]), year=False)
+    if check.kind == "domain" and detail.get("expiry"):
+        return "until " + brand.human_date(date.fromisoformat(detail["expiry"]))
+    if check.kind == "links" and detail.get("links_checked") is not None:
+        return f"{detail['links_checked']} links"
+    if check.kind == "dns":
+        return "hourly" if tone == "up" else "changed"
+    if check.kind == "email_auth" and tone != "up":
+        missing = []
+        if not detail.get("spf_records"):
+            missing.append("SPF")
+        if not detail.get("dmarc_record"):
+            missing.append("DMARC")
+        return (" and ".join(missing) + " missing") if missing else "needs attention"
+    if check.kind == "form":
+        return "checked daily" if tone == "up" else "not delivering"
+    return "checked daily"
+
+
+def _coming_up(checks: dict[str, queries.CheckStatus], today: date) -> list[str]:
+    """Things a client should know about before they become problems."""
+    notes = []
+    domain = checks.get("domain")
+    if domain and domain.detail and domain.detail.get("expiry"):
+        expiry = date.fromisoformat(domain.detail["expiry"])
+        days = (expiry - today).days
+        if 0 <= days <= 90:
+            registrar = (domain.detail.get("registrar") or "").rstrip(".")
+            with_whom = f" It is registered with {registrar}." if registrar else ""
+            notes.append(
+                f"Your domain renews on {brand.human_date(expiry)}.{with_whom} "
+                "If it lapses, the website and email stop working."
+            )
+    tls = checks.get("tls")
+    tls_days = tls.detail.get("days_left") if tls and tls.detail else None
+    if tls_days is not None and float(tls_days) < 21:
+        notes.append(
+            "The security certificate expires soon. It normally renews by itself; "
+            "this is being watched."
+        )
+    return notes
 
 
 def _percentile(values: list[int], fraction: float) -> int | None:
@@ -98,6 +210,29 @@ async def build_report(session: AsyncSession, site_id: int, year: int, month: in
 
     uptime_checks = sum(row.uptime_checks for row in rows)
     uptime_ok = sum(row.uptime_ok for row in rows)
+
+    statuses = await queries.site_statuses(session, site_id)
+    checks = {c.kind: c for c in statuses[0].checks if c.enabled} if statuses else {}
+    order = {
+        k: i
+        for i, k in enumerate(
+            ["uptime", "content", "form", "links", "tls", "domain", "dns", "email_auth"]
+        )
+    }
+    watched = [
+        Watched(brand.tone(c.status), client_words(c.kind, brand.tone(c.status)), _evidence(c))
+        for c in sorted(checks.values(), key=lambda c: order.get(c.kind, 99))
+    ]
+    first_result = await session.scalar(
+        select(func.min(CheckResult.started_at))
+        .join(Check, Check.id == CheckResult.check_id)
+        .where(Check.site_id == site_id)
+    )
+    first_day = (
+        first_result.astimezone(ZoneInfo(get_settings().display_timezone)).date()
+        if first_result
+        else None
+    )
     return MonthlyReport(
         site_name=site.name,
         domain=site.domain,
@@ -113,7 +248,18 @@ async def build_report(session: AsyncSession, site_id: int, year: int, month: in
         incidents=sorted(incidents, key=lambda i: i.opened_at),
         downtime_seconds=sum(row.downtime_seconds for row in rows),
         daily=rows,
+        watched=watched,
+        coming_up=_coming_up(checks, datetime.now(UTC).date()),
+        first_day=first_day,
     )
+
+
+def _local(when: datetime, fmt: str) -> str:
+    return brand.local(when, fmt, get_settings().display_timezone)
+
+
+TEMPLATES.filters["local"] = _local
+TEMPLATES.filters["checkname"] = brand.check_name
 
 
 def render_html(report: MonthlyReport) -> str:
@@ -123,33 +269,40 @@ def render_html(report: MonthlyReport) -> str:
 
 
 def render_text(report: MonthlyReport) -> str:
-    """Plain-text version, for the email body and for reading in a terminal."""
+    """Plain-text version: the email fallback, and what the CLI prints."""
+    marks = {"up": "o", "warn": "!", "down": "x", "none": "-"}
     lines = [
         f"{report.site_name} ({report.domain})",
-        f"{report.month_name} report from Sitewatch",
+        f"{report.month_name} website report, from Tideline",
         "",
-        f"Uptime:          {report.uptime_text}",
-        f"Checks run:      {report.checks_run:,}",
-        f"Response time:   p50 {report.p50_ms or '-'} ms, p95 {report.p95_ms or '-'} ms",
-        f"Downtime:        {report.downtime_text}",
-        f"Days covered:    {report.days_covered} of {report.days_in_month}",
+        f"Uptime: {report.uptime_text}",
+        report.uptime_sentence,
         "",
+        f"Typical response time: {report.p50_ms or '-'} ms",
+        f"Downtime: {report.downtime_text}",
     ]
-    if report.incidents:
-        lines.append(f"Incidents ({len(report.incidents)}):")
-        for incident in report.incidents:
+    if report.coming_up:
+        lines += ["", "Coming up:"] + [f"  ! {note}" for note in report.coming_up]
+    events = [i for i in report.incidents if i.severity == "critical"]
+    if events:
+        lines += ["", "What happened:"]
+        for incident in events:
             ended = (
-                incident.resolved_at.strftime("%d %b %H:%M")
+                f"fixed after {format_duration(incident.resolved_at - incident.opened_at)}"
                 if incident.resolved_at
                 else "still open"
             )
             lines.append(
-                f"  {incident.opened_at:%d %b %H:%M} to {ended}"
-                f"  [{incident.check_kind}/{incident.severity}] {incident.summary}"
+                f"  {_local(incident.opened_at, '%-d %B, %H:%M')} ({ended}): "
+                f"{brand.check_name(incident.check_kind)}: {incident.summary}"
             )
-    else:
-        lines.append("No incidents this month.")
-    lines += ["", f"https://status.obwebdesign.ca/sites/{report.site_id}/view"]
+    lines += ["", "What was watched:"]
+    lines += [f"  {marks[w.tone]} {w.text} ({w.evidence})" for w in report.watched]
+    lines += [
+        "",
+        "Watched every five minutes by Tideline, the monitoring service behind every "
+        "OBdesign website.",
+    ]
     return "\n".join(lines)
 
 
