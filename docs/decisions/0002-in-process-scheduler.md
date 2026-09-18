@@ -1,5 +1,7 @@
 # 0002: APScheduler inside the worker, async throughout
 
+> **Superseded on 2026-09-18 by [0005](0005-serverless-twice-monthly.md)** (twice-monthly runs on Lambda). Kept as it was decided.
+
 **Status:** accepted, 2026-09-17
 
 **Context.** About 46 scheduled checks, most every 5 minutes, all network-bound.

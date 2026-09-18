@@ -1,5 +1,7 @@
 # 0004: The heartbeat alarm fills gaps with zero
 
+> **Superseded on 2026-09-18 by [0005](0005-serverless-twice-monthly.md)** (twice-monthly runs on Lambda). Kept as it was decided.
+
 **Status:** accepted, 2026-09-18 (after three measured attempts)
 
 **Context.** If the worker dies, every site looks healthy and nobody is told.

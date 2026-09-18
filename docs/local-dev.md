@@ -1,49 +1,61 @@
 # Running Tideline locally
 
+No Docker and no database server needed: the database is one SQLite file.
+
 ## One-time setup
-Needs Docker (OrbStack or Docker Desktop) and `uv`. Python 3.12 is fetched by uv.
+Needs `uv`. Python 3.12 is fetched by uv.
 
 ```bash
 uv sync                               # creates .venv with app + dev tools
 cp sites.example.yaml sites.yaml      # then list the real sites (git-ignored)
+uv run tideline migrate               # creates tideline.db in this folder
 ```
 
-## Run the whole thing
+## Run the checks, like production does on the 1st and 15th
 ```bash
-docker compose up --build
+uv run tideline run --sites sites.yaml
 ```
-Starts Postgres 16, runs `tideline migrate` and `tideline seed` once, then the
-worker. Every check result is one JSON log line (`"event": "check_result"`).
+Every check result is one JSON log line (`"event": "check_result"`). Locally,
+emails are not sent: the run summary and reports are written to the log
+instead (`TIDELINE_NOTIFY_CHANNEL=log`, the default). Narrow a run with
+`--kind dns` or `--site davesbakery.ca`; add `--reports` to also build last
+month's reports.
 
-## The incident demo (the M1 "Done when" check)
+## The dashboard
 ```bash
-docker compose -f compose.yaml -f compose.demo.yaml up --build -d
-docker compose logs -f worker | grep -E 'incident_|"alert"'
+TIDELINE_API_TOKEN=dev TIDELINE_DASHBOARD_PASSWORD=dev uv run tideline api
 ```
-In a second terminal:
+Then http://127.0.0.1:8000/ and sign in as `owen` / `dev`.
+
+## The incident demo (about a minute)
 ```bash
-docker compose stop fakesite     # within ~30 s: incident_open + alert (open)
-docker compose start fakesite    # within ~10 s: incident_resolve + alert (resolved)
+scripts/demo.sh
 ```
-Confirm it landed in Postgres:
-```bash
-docker compose exec postgres psql -U sitewatch -c "select id, opened_at, resolved_at, resolved_at - opened_at as duration, severity from incidents;"
-```
-Reset everything, including the database volume: `docker compose down -v`.
+Serves a fake client site on the laptop, runs Tideline against it, stops the
+site (an incident opens and a "1 new problem" summary is logged), starts it
+again (it resolves, "1 fixed"), and prints the incident row. This is what the
+CI workflow runs too.
 
 ## Tests, lint, types
 ```bash
-docker compose up -d postgres
-TIDELINE_TEST_DATABASE_URL=postgresql+psycopg://sitewatch:sitewatch@localhost:5432/sitewatch_test uv run pytest
+uv run pytest
 uv run ruff check . && uv run ruff format --check . && uv run mypy
 ```
-Without `TIDELINE_TEST_DATABASE_URL` the integration tests are skipped and
-only the unit tests run. The test database is emptied by the tests: never
-point it at real data.
+The integration tests build a fresh SQLite file through the real migrations in
+a temporary folder, and use moto for fake S3, SSM and SES. Nothing touches AWS
+or the network beyond localhost.
+
+## The Lambda image
+```bash
+docker build --platform linux/arm64 -t tideline:lambda .
+docker run --rm --entrypoint python tideline:lambda -c "import tideline.aws_lambda; print('ok')"
+```
 
 ## Useful commands
 ```bash
-uv run tideline check davesbakery.ca --expected "Daves' Bakery"   # run checks 1-4 once, no DB
+uv run tideline check davesbakery.ca --expected "Daves' Bakery"   # run checks 1-4 once, no database
 uv run tideline seed sites.yaml                                   # re-load the site list
+uv run tideline report --month 2026-09 --site davesbakery.ca      # print a report
 uv run alembic revision --autogenerate -m "describe the change"    # after editing db/models.py
+sqlite3 tideline.db "select * from incidents where resolved_at is null;"
 ```

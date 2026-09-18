@@ -1,12 +1,14 @@
 # Tideline
 
-**A monitoring service for every website OBdesign runs.** It checks each live client site around the clock, notices when something breaks or is about to break, tells Owen before the client notices, and keeps the history that proves the sites are healthy.
+**A monitoring service for every website OBdesign runs.** It checks each live client site on the 1st and 15th of every month, notices what has broken or is about to (a lapsing domain, an expiring certificate, a dead contact form), tells Owen, and sends him a report per site to forward to the client.
 
-It is a Python backend running in Docker on AWS, deployed by GitHub Actions, with tests, structured logs, metrics and alarms. Its working name was Sitewatch; [docs/brand.md](docs/brand.md) explains the rename.
+It is a Python service on AWS Lambda, built as a container image, with Terraform, tests, structured logs, metrics and an alarm. It costs well under USD 1 a month. Its working name was Sitewatch; [docs/brand.md](docs/brand.md) explains the rename.
 
-> **Status (2026-09-18): M0 to M5 done and verified on the live system.** https://status.obwebdesign.ca/ watches 11 sites with 88 checks across 8 kinds, emails incidents through SES, emails monthly reports on the 1st, backs up nightly (restore verified), and alarms through CloudWatch and SNS, including a dead-worker alarm measured at 11 min 52 s. 238 tests; the CI workflow passes end to end when run locally with `act`. **One thing outside the code:** GitHub Actions is disabled because the GitHub account is flagged (appeal open), so deploys run from the laptop with the same commands the workflow uses (docs/runbook.md).
+> **Status (2026-09-18): live on AWS Lambda.** https://status.obwebdesign.ca/ (sign-in required) watches 11 sites with 86 checks across 8 kinds. A full run takes about 21 seconds on Lambda. 323 tests.
 >
-> **Run it locally:** [docs/local-dev.md](docs/local-dev.md). **How the code fits together:** [docs/architecture.md](docs/architecture.md).
+> **History:** version 1 (2026-09-17) ran every 5 minutes on an always-on EC2 server with Postgres, about USD 20 a month. Owen only needs a twice-monthly check and a monthly report, so on 2026-09-18 it moved to Lambda, a scheduler and a SQLite file in S3 ([decision 0005](docs/decisions/0005-serverless-twice-monthly.md)). The server-era milestones below are kept as they happened.
+>
+> **Run it locally:** [docs/local-dev.md](docs/local-dev.md). **How the code fits together:** [docs/architecture.md](docs/architecture.md). **Operating it:** [docs/runbook.md](docs/runbook.md).
 
 ---
 
@@ -22,7 +24,7 @@ OBdesign has 11 live client sites and no way to know when one of them breaks. To
 - a page links somewhere that no longer exists
 - a site gets hacked and serves spam (Figs & Honey's old WordPress did exactly this)
 
-Tideline catches all of those. Longer term it is the engine behind a paid maintenance plan: "your site is watched every five minutes, and here is your monthly report."
+Tideline catches all of those. Longer term it is the engine behind a paid maintenance plan: "your site is checked twice a month, and here is your monthly report." Nothing on these sites changes day to day, and a site that goes down is noticed by the client or Owen within hours anyway, so a twice-monthly check catches what matters: the slow failures nobody would notice until too late.
 
 ### The career reason
 A scan of the UVic co-op board on 2026-09-17 (143 open postings, 43 software developer roles) counted how often each skill appears:
@@ -38,22 +40,24 @@ A scan of the UVic co-op board on 2026-09-17 (143 open postings, 43 software dev
 | CI/CD | 10 | Yes |
 | **Docker** | **9** | **Coursework only, rusty** |
 
-This project turns the whole cluster into things Owen has actually built and run in production: a Python API and worker, Postgres, Docker in production, AWS, a Linux server he operates, CI/CD with automated deploys, and real observability. It watches real sites for real clients, so it is not a toy.
+This project turns the whole cluster into things Owen has actually built and run in production: a Python API and scheduled job, SQL with migrations, Docker images, AWS (Lambda, S3, CloudFront, IAM, SES, CloudWatch, EventBridge), infrastructure as code, CI/CD, and real observability. Version 1 also meant operating a Linux server (patching, disk, backups, restores). It watches real sites for real clients, so it is not a toy.
 
 ---
 
 ## 2. What it checks
 
-| # | Check | How | How often | Opens an incident when | Milestone |
-|---|---|---|---|---|---|
-| 1 | **Uptime and response time** | `GET` the homepage (and any key pages listed for the site); record status code, total time, and TTFB | every 5 min | 2 failures in a row (non-2xx/3xx, timeout over 10 s, or connection error). One immediate retry after 30 s before a failure counts. | M1 |
-| 2 | **Content sanity** | Page body must contain an expected string (the business name) and must not contain spam markers. Markers are phrases ("online casino", "slot gacor", "canadian pharmacy", "viagra"), not bare words, so a musician's casino gig is not flagged; a site can ignore one with `spam_ignore` | every 5 min, same request as #1 | expected text missing, or a spam marker appears | M1 |
-| 3 | **TLS certificate** | Open a TLS connection, read the certificate's expiry and hostname match | every 6 h | under 21 days (warning), under 7 days (critical), or invalid (critical). A connection that fails before the handshake is left to the uptime check. | M1 |
-| 4 | **Domain registration** | RDAP lookup for the expiry date (reuse the logic in `~/OBDesign/Systems/leadgen/domain_status.py`) | daily | under 30 days to expiry (warning), under 7 days, expired or a hold/redemption status (critical). RDAP rate limits and outages record nothing. | M1 |
-| 5 | **DNS drift** | Resolve A, AAAA, CNAME, MX, NS and TXT for the apex and `www`; compare with the stored baseline. Addresses behind a CNAME are not compared, because a CDN rotates them. | hourly | any record differs from the baseline. Owen accepts a change to make it the new baseline (`POST /sites/{id}/dns-baseline/accept`). | M4 |
-| 6 | **Email authentication** | Exactly one SPF record, under 10 DNS lookups, DMARC record present | daily | **fail** when mail is actively failing authentication (two SPF records, or over the lookup limit); **warn** for a gap that breaks nothing today (no SPF at all, no DMARC) | M4 |
-| 7 | **Broken links** | Crawl the site's internal links (same host, depth limit, polite rate), `HEAD` external links and confirm any failure with a `GET` | daily | **fail** when an internal link returns 4xx/5xx; **warn** for an external 404/410. Bot-blocking answers (Instagram 429, LinkedIn 999) are not broken links, and each broken URL counts once however many pages it appears on. | M5 |
-| 8 | **Contact form health** | Find the contact page by following the site's own navigation (or `contact_url` in sites.yaml), confirm a contact form is present, and probe its endpoint with OPTIONS/HEAD/GET. **Never submits the form**: that would email the client, and there is a test that asserts no POST is ever made. | daily | form missing, or its endpoint returns 404/410/5xx | M5 |
+| # | Check | How | Opens an incident when | Milestone |
+|---|---|---|---|---|
+| 1 | **Uptime and response time** | `GET` the homepage (and any key pages listed for the site); record status code, total time, and TTFB | a failed run (non-2xx/3xx, timeout over 10 s, or connection error). One immediate retry after 30 s before a failure counts. | M1 |
+| 2 | **Content sanity** | Page body must contain an expected string (the business name) and must not contain spam markers. Markers are phrases ("online casino", "slot gacor", "canadian pharmacy", "viagra"), not bare words, so a musician's casino gig is not flagged; a site can ignore one with `spam_ignore` (same request as #1) | expected text missing, or a spam marker appears | M1 |
+| 3 | **TLS certificate** | Open a TLS connection, read the certificate's expiry and hostname match | under 21 days (warning), under 7 days (critical), or invalid (critical). A connection that fails before the handshake is left to the uptime check. | M1 |
+| 4 | **Domain registration** | RDAP lookup for the expiry date (reuse the logic in `~/OBDesign/Systems/leadgen/domain_status.py`) | under 30 days to expiry (warning), under 7 days, expired or a hold/redemption status (critical). RDAP rate limits and outages record nothing. | M1 |
+| 5 | **DNS drift** | Resolve A, AAAA, CNAME, MX, NS and TXT for the apex and `www`; compare with the stored baseline. Addresses behind a CNAME are not compared, because a CDN rotates them. | any record differs from the baseline. Owen accepts a change to make it the new baseline (`POST /sites/{id}/dns-baseline/accept`). | M4 |
+| 6 | **Email authentication** | Exactly one SPF record, under 10 DNS lookups, DMARC record present | **fail** when mail is actively failing authentication (two SPF records, or over the lookup limit); **warn** for a gap that breaks nothing today (no SPF at all, no DMARC) | M4 |
+| 7 | **Broken links** | Crawl the site's internal links (same host, depth limit, polite rate), `HEAD` external links and confirm any failure with a `GET` | **fail** when an internal link returns 4xx/5xx; **warn** for an external 404/410. Bot-blocking answers (Instagram 429, LinkedIn 999) are not broken links, and each broken URL counts once however many pages it appears on. | M5 |
+| 8 | **Contact form health** | Find the contact page by following the site's own navigation (or `contact_url` in sites.yaml), confirm a contact form is present, and probe its endpoint with OPTIONS/HEAD/GET. **Never submits the form**: that would email the client, and there is a test that asserts no POST is ever made. | form missing, or its endpoint returns 404/410/5xx | M5 |
+
+Every check runs once per run, on the 1st and 15th at 07:00 Pacific.
 
 Seed list, the 11 live sites (from `Career/Master Source.md`): davesbakery.ca, charliesexcavating.ca, ontheroadside.ca, grainconstruction.ca, nicolconstruction.ca, somavictoria.ca, bayviewcottagesaltspring.com, figsandhoney.com, suzannegaymusic.ca, maidinvictoria.ca, adriennehughes.ca.
 
@@ -64,39 +68,40 @@ Seed list, the 11 live sites (from `Career/Master Source.md`): davesbakery.ca, c
 ## 3. How it works
 
 ```
-                         GitHub
-             push ─► Actions: lint, test, build image
-                          │  (OIDC, no stored AWS keys)
-                          ▼
-                   Amazon ECR (image)          Terraform: all AWS resources as code
-                          │
-            SSM Run Command: pull + migrate + restart
-                          ▼
- ┌─────────────────── EC2 (Graviton, Amazon Linux 2023) ────────────────────┐
- │  docker compose                                                           │
- │   ┌─────────┐   ┌──────────────┐   ┌──────────────┐   ┌───────────────┐   │
- │   │  caddy  │──►│  api          │   │  worker       │   │  postgres     │   │
- │   │  HTTPS  │   │  FastAPI      │   │  scheduler +  │──►│  (EBS volume) │   │
- │   └─────────┘   │  dashboard    │──►│  checks       │   └───────────────┘   │
- │                 └──────────────┘   └──────┬───────┘          │ nightly     │
- └─────────────────────────────────────────────┼──────────────────┼────────────┘
-                                               │                  ▼
-            JSON logs + metrics ◄──────────────┤            S3 (pg_dump backups)
-            CloudWatch Logs / Metrics / Alarms │
-                     │                         ▼
-                     └──► SNS ──► Owen    SES email alerts ──► Owen
+  EventBridge Scheduler                          Owen's browser
+  1st and 15th, 07:00 Pacific                    status.obwebdesign.ca
+          │                                              │
+          ▼                                              ▼
+  ┌───────────────────┐                         CloudFront (HTTPS, certificate)
+  │ Lambda            │                                  │
+  │ tideline-run      │                                  ▼
+  │  load site list   │                         ┌───────────────────┐
+  │  run 86 checks ───┼──► client websites      │ Lambda            │
+  │  incidents        │                         │ tideline-web      │
+  │  daily summary    │                         │  FastAPI dashboard│
+  └──┬─────────┬──────┘                         │  + JSON API       │
+     │         │  one summary email, only       └─────────┬─────────┘
+     │         └► if something changed ─► SES ─► Owen     │
+     │            (+ monthly reports on the 1st)          │
+     ▼                                                    ▼
+  S3: tideline.db (SQLite) ◄──── download / upload ───────┘
+      versioned: every run's upload is also a backup
+
+  Secrets and the site list: SSM Parameter Store     Image: ECR (arm64)
+  Logs and metrics: CloudWatch     Alarm "the run failed": CloudWatch ─► SNS ─► Owen
+  Every resource: Terraform (infra/)
 ```
 
-**Two processes, one image.** The same Docker image runs as `api` or `worker` depending on its command.
+**One image, two functions.** The same container image runs as both Lambda functions; only the handler differs.
 
-- **worker**: a scheduler (APScheduler) that runs each check on its interval with a concurrency limit. Every result is written to Postgres. After each result, the incident engine decides whether an incident opens, stays open or resolves, and sends alerts. It emits a heartbeat metric every cycle.
-- **api**: FastAPI. JSON endpoints plus the Tideline dashboard, server-rendered (Jinja templates and one stylesheet, no front-end framework and no JavaScript). Behind Caddy, which handles HTTPS automatically. The look, the status shapes and the wording rules are in [docs/brand.md](docs/brand.md).
-- **postgres**: Postgres 16 in a container on the instance's EBS volume, dumped nightly to S3 with 30-day retention. A backup that has never been restored is not a backup, so the restore is tested and written up in `docs/runbook.md`.
+- **tideline-run**: started by EventBridge Scheduler on the 1st and 15th. Downloads the database from S3, applies any new migration, loads the site list from Parameter Store, runs every check (five at a time), updates incidents, summarises the day into `daily_rollups`, uploads the database back, then emails Owen one summary if anything changed. On the 1st it also emails last month's report for every site.
+- **tideline-web**: FastAPI, behind CloudFront. The dashboard is server-rendered (Jinja templates and one stylesheet, no front-end framework and no JavaScript), with a sign-in page. It downloads the database only when it has changed since its last request (S3 ETag). The look, the status shapes and the wording rules are in [docs/brand.md](docs/brand.md).
+- **The database** is one SQLite file in S3. Uploads are conditional (S3 If-Match): if the file changed since it was downloaded, the upload is refused rather than silently overwriting it. S3 versioning keeps every earlier copy for 90 days.
 
 ### Incident rules
 - A check result is `ok`, `warn` or `fail`. An **incident** is a period of non-ok results, with a start, an end and a duration.
-- Uptime needs 2 consecutive failures to open an incident (about 10 minutes), which stops one network blip from paging anyone.
-- An incident sends **one** alert when it opens, a reminder every 24 h while it stays open, and a recovery notice with the duration when it closes. A warning incident that becomes critical sends one `escalated` alert.
+- Runs are two weeks apart, so every kind opens an incident on its first bad run. A network blip still cannot open one: the uptime check retries once after 30 s before it counts a failure.
+- A run collects every alert it raises (opened, escalated, fixed) into **one** summary email, sent only when something changed. Problems that were already open are listed in that email but never send one on their own, so a quiet run sends nothing.
 - A result is `ok`, `warn` (opens a *warning* incident) or `fail` (opens a *critical* one). An incident is dated from the first failure of its streak.
 - A check that cannot form an opinion (content on a page that did not load, RDAP rate-limited) records nothing, so one outage is one incident, not three.
 - An alert that fails to send is retried on the next run; `alerts` only holds alerts that actually went out.
@@ -104,18 +109,19 @@ Seed list, the 11 live sites (from `Career/Master Source.md`): davesbakery.ca, c
 - DNS drift incidents stay open until Owen accepts the new baseline (`POST /sites/{id}/dns-baseline/accept`, or the CLI).
 - **Tideline never emails a client.** Alerts and monthly reports go to Owen only; he decides what to forward. This matches the vault's standing rule that nothing contacts clients automatically.
 
-### Data model (first cut)
+### Data model
 ```
-sites          id, name, domain, urls[], expected_text, active, created_at
-checks         id, site_id, kind, key, interval_seconds, config jsonb, enabled      (unique site_id, key)
-check_results  id, check_id, started_at, duration_ms, status, detail jsonb     (indexed on check_id, started_at)
+sites          id, name, domain, urls (json), expected_text, active, created_at
+checks         id, site_id, kind, key, interval_seconds, config (json), enabled      (unique site_id, key)
+check_results  id, check_id, started_at, duration_ms, status, detail (json)     (indexed on check_id, started_at)
 incidents      id, check_id, opened_at, resolved_at, severity, summary, last_alerted_at   (one open per check)
-dns_baselines  id, site_id, records jsonb, accepted_at
+dns_baselines  id, site_id, records (json), accepted_at
+daily_rollups  id, site_id, day, results, uptime_checks, uptime_ok, p50_ms, p95_ms, ...   (one per site per run day)
 alerts         id, incident_id, channel, sent_at, kind (open|escalated|reminder|resolved)
 ```
-Migrations with Alembic. `check_results` grows by about 3,500 rows a day at 11 sites; keep 90 days of raw results and a daily rollup table (uptime %, p50/p95 response time) forever.
+SQLite through SQLAlchemy 2 and Alembic. Times are stored as UTC. A run adds about 90 results; raw results are kept for 400 days and the rollups forever. (`interval_seconds` is from version 1 and no longer drives anything: every enabled check runs once per run.)
 
-### API (first cut)
+### API
 ```
 GET  /healthz                         liveness: process up, DB reachable
 GET  /sites                           every site with current status
@@ -129,8 +135,9 @@ GET  /incidents/view                   dashboard: open and resolved incidents
 GET  /reports                          dashboard: every monthly report
 GET  /reports/{site_id}/{yyyy-mm}      monthly report (HTML, also emailed to Owen)
 GET  /favicon.svg                      the T. mark, its period in the worst current status
+GET  /login, POST /login, GET /logout  the dashboard's sign-in
 ```
-Everything except `/healthz` requires auth (a bearer token for the API, basic auth for the dashboard to start). The dashboard's own "accept DNS" button posts to `/sites/{id}/dns-baseline/accept-form`, which refuses any request that did not come from the dashboard's own origin.
+Everything except `/healthz`, `/login` and the stylesheet requires auth: a bearer token for the API, a signed session cookie (from the sign-in page) or basic auth for the dashboard. The dashboard's own "accept DNS" button posts to `/sites/{id}/dns-baseline/accept-form`, which refuses any request that did not come from the dashboard's own origin.
 
 ---
 
@@ -139,40 +146,44 @@ Everything except `/healthz` requires auth (a bearer token for the API, basic au
 | Layer | Choice | Why |
 |---|---|---|
 | Language | Python 3.12, managed with `uv` | The most-asked language on the board (25 postings). Owen already writes it. |
-| API | FastAPI + Pydantic | Typed, async, auto-generated OpenAPI docs. The standard for new Python services. |
+| API | FastAPI + Pydantic, Mangum to run it on Lambda | Typed, async, auto-generated OpenAPI docs. Mangum translates a Lambda request into an ordinary web request, so the app does not know it is on Lambda. |
 | HTTP / DNS / TLS | `httpx`, `dnspython`, stdlib `ssl` | Async HTTP with fine-grained timeouts; real DNS queries rather than the system resolver. |
-| DB | Postgres 16, SQLAlchemy 2, Alembic | SQL is on 19 postings; migrations are how teams change schemas safely. |
-| Scheduling | APScheduler in the worker | Simple, in-process, fine at this scale. |
-| Tests | pytest, `respx` (HTTP mocking), real Postgres in CI | Unit tests for every check and every incident rule; integration tests against a real database. |
-| Quality | `ruff` (lint + format), `mypy` | Enforced in CI. |
-| Containers | Docker, `docker compose` for local dev and production | Same images run on the laptop and in AWS. arm64 builds for Graviton. |
+| DB | SQLite (one file in S3), SQLAlchemy 2, Alembic | Tiny data (about 90 rows a run) and one writer at a time: a database server would be all cost and no benefit. Migrations still run through Alembic. |
+| Scheduling | EventBridge Scheduler | Starts the run on the 1st and 15th in Pacific time, with retries. Nothing runs, or costs, in between. |
+| Tests | pytest, `respx` (HTTP mocking), `moto` (fake AWS), real SQLite | Unit tests for every check and incident rule; integration tests through the real migrations, the Lambda handlers and a real local web server. |
+| Quality | `ruff` (lint + format), `mypy --strict` | Enforced in CI. |
+| Containers | Docker, AWS's Lambda Python base image, arm64 | The same image runs both functions. Graviton (arm64) is cheaper per second. |
 | Cloud | AWS, region `ca-central-1` (Montreal) | AWS is on 17 postings, versus 5 each for Azure and GCP. Canadian region for Canadian clients' data. |
-| Compute | One EC2 `t4g.small` running compose | See the decision record below. |
+| Compute | Two Lambda functions | See [decision 0005](docs/decisions/0005-serverless-twice-monthly.md). |
+| HTTPS | CloudFront + an ACM certificate | A Lambda function URL cannot have a custom domain; CloudFront holds the certificate for `status.obwebdesign.ca` and passes requests through, uncached. |
 | Infra as code | Terraform (state in S3) | Every AWS resource is reproducible and reviewable. No clicking around the console. |
-| CI/CD | GitHub Actions, AWS access via OIDC | Lint and test on every push; build, push to ECR and deploy on `main`. No long-lived AWS keys anywhere. |
-| Deploy | SSM Run Command | No SSH port open. Deploy script: pull, `alembic upgrade head`, restart, poll `/healthz`, roll back to the previous image tag on failure. |
-| TLS / proxy | Caddy | Automatic Let's Encrypt certificates for `status.obwebdesign.ca`. |
-| Logs | JSON to stdout → Docker `awslogs` driver → CloudWatch Logs | Searchable, structured, one line per check result. |
-| Metrics | CloudWatch Embedded Metric Format from the app; CloudWatch agent for host memory and disk | `checks_run`, `check_failures`, `check_duration_ms`, `open_incidents`, `worker_heartbeat`, `backup_success`. No per-site dimensions: CloudWatch charges per metric per month, and per-site detail is free in the logs. |
-| Alarms | CloudWatch Alarms → SNS email | Watches the watcher (below). |
-| Email | Amazon SES, domain identity on obwebdesign.ca with DKIM | Alerts and monthly reports to Owen. SES sandbox is fine because the only recipient is Owen. |
-| Secrets | SSM Parameter Store (SecureString) | DB password, API token, dashboard password, and `sites.yaml` itself. Nothing secret in the repo, the image, or Terraform state. |
+| CI/CD | GitHub Actions, AWS access via OIDC; `scripts/deploy.sh` from the laptop | Build, push to ECR, point both functions at the new image, migrate, health-check. No long-lived AWS keys anywhere. |
+| Logs | JSON to stdout → CloudWatch Logs | Searchable, structured, one line per check result. |
+| Metrics | CloudWatch Embedded Metric Format | `checks_run`, `check_failures`, `check_errors`, `open_incidents` per run, written as log lines that CloudWatch turns into metrics. |
+| Alarms | CloudWatch Alarm → SNS email | One alarm: the scheduled run raised an error. A budget alert at USD 3 a month. |
+| Email | Amazon SES, domain identity on obwebdesign.ca with DKIM | Run summaries and monthly reports to Owen. The SES sandbox is kept on purpose: it can only mail verified addresses, so it cannot mail a client. |
+| Secrets | SSM Parameter Store (SecureString) | API token, dashboard login, and `sites.yaml` itself, read by the functions when they start. Nothing secret in the repo, the image, the function settings or Terraform state. |
 
-### Decision record: why a single EC2 box and not Lambda, ECS or RDS
-- **Lambda + RDS:** a Lambda that talks to RDS must sit inside a VPC, and a Lambda inside a VPC cannot reach the internet without a NAT gateway (about USD 30+/month on its own). A monitoring tool whose whole job is reaching the internet walks straight into that trap.
-- **ECS Fargate + RDS + a load balancer:** the "big company" shape, but about USD 50–70/month before doing anything, for 11 sites.
-- **One Graviton instance running compose:** roughly USD 15–20/month all-in. It also means Owen operates a real Linux server: patching, disk, memory, logs, backups, restores. That is the operations experience the postings mean.
-- **The upgrade path is written down, not built:** move Postgres to RDS and the containers to ECS when there is a reason (many more sites, or a second monitoring region). Being able to explain this trade-off in an interview is worth more than the fancier diagram.
+### Decision record: from one EC2 server to Lambda
+Version 1 was one Graviton EC2 instance running Docker Compose (Caddy, the API, a worker checking every 5 minutes, Postgres), about USD 20 a month. It was the right shape for checking every 5 minutes, and it taught the operations side: a Linux server, disks, backups and a tested restore, a dead-worker alarm measured at 11 min 52 s ([decision 0001](docs/decisions/0001-single-ec2-instance.md), [0004](docs/decisions/0004-heartbeat-alarm.md)).
+
+Owen then set the real requirement: this is a portfolio project that must cost under USD 3 a month, and a check twice a month is plenty. At that cadence an always-on server is idle 99.99% of the time, so the design flipped ([decision 0005](docs/decisions/0005-serverless-twice-monthly.md)):
+
+- **Lambda, not a server:** a run takes about 21 seconds, twice a month. That is well inside Lambda's always-free allowance.
+- **SQLite in S3, not Postgres or RDS:** one writer, tiny data. RDS would cost more than the whole budget, and a Lambda talking to RDS needs a VPC, which needs a NAT gateway (about USD 35 a month) to reach the internet it is monitoring.
+- **No VPC at all:** the functions only make outbound HTTPS requests, so they stay outside a VPC and reach the internet directly, for free.
+- **The trade-off, said plainly:** it no longer notices an outage within minutes. For these sites that is acceptable; for a client paying for uptime monitoring it would not be, and version 1's design (in git history) is the answer.
 
 ### Watching the watcher
-If the worker dies, every site looks fine and nobody is told. So:
-- The worker publishes `worker_heartbeat` every minute. A CloudWatch metric-math alarm on `FILL(heartbeats, 0)` fires after ten minutes of zeros and emails Owen through SNS, a path that does not depend on the instance or on SES. **Measured: 11 min 52 s** from stopping the worker to the alarm, after two slower designs were measured and rejected ([decision 0004](docs/decisions/0004-heartbeat-alarm.md)).
-- Alarms also fire on disk above 80%, sustained high memory, and a failed nightly backup.
+If a run fails, nobody would know until the monthly report did not arrive. So:
+- A CloudWatch alarm emails Owen through SNS when the run function raises an error. SNS does not depend on SES or on Tideline's own code working.
+- The monthly report on the 1st is the "it ran" signal: CloudWatch alarms can only look back seven days, and runs are fourteen days apart.
+- EventBridge Scheduler retries a failed start twice.
 
 ### Security
-- Nothing listens publicly except Caddy on 80/443. No SSH: shell access goes through SSM Session Manager.
-- Least-privilege IAM: the instance role can read its own parameters, write logs and metrics, pull from ECR, put to its backup bucket and send through SES, and nothing else. The GitHub OIDC role can push to one ECR repo and send one SSM command document.
-- The dashboard and API require auth. Postgres is only reachable on the compose network.
+- Nothing is listening except the dashboard function behind CloudFront, and it requires a sign-in. There is no server to patch or SSH into.
+- Least-privilege IAM, one role per function: the run can read and write the one database object, read its own parameters, and send email to Owen only (an IAM condition on the recipient). The dashboard can do the first two, and cannot send email at all. The GitHub OIDC role can push to one ECR repository and update two functions.
+- The sign-in sets an HttpOnly, SameSite=Lax cookie signed with a key derived from the password; a wrong password costs a one-second delay.
 - Outbound checks send an honest `User-Agent: Tideline/1.0 (+https://obwebdesign.ca)` and respect rate limits. The link crawler stays on the client's own host.
 - `docs/threat-model.md`: a short threat model of the service itself (useful practice alongside SENG 360).
 
@@ -184,42 +195,40 @@ If the worker dies, every site looks fine and nobody is told. So:
 tideline/
   README.md                 this brief
   pyproject.toml            uv-managed; ruff, mypy, pytest config
-  Dockerfile                multi-stage, non-root user, arm64 + amd64
-  compose.yaml              local dev: postgres, migrate+seed, worker (api from M2)
-  compose.demo.yaml         local incident demo: adds a fake site to stop and start
-  compose.prod.yaml         production overrides: caddy, awslogs driver, restart policies
-  Caddyfile
+  Dockerfile                the Lambda image (arm64), used by both functions
   alembic/                  migrations
   sites.example.yaml        site list format (the real sites.yaml is git-ignored)
-  demo/                     fake site + its sites file for the local demo
-  docker/                   postgres init (creates the test database)
+  demo/                     fake site + its sites file for scripts/demo.sh
   src/tideline/
-    api/                    FastAPI app, routes, auth, templates/
-    worker/                 scheduler, runner
+    aws_lambda.py           the two Lambda handlers: run, and the dashboard
+    api/                    FastAPI app, routes, auth and sign-in, views, templates/, static/
+    worker/                 run.py (one whole run), runner.py (one check)
     checks/                 one module per check kind, each a pure function of (config, clients) -> Result
-    incidents/              incident state machine + alerting
-    notify/                 SES email, templates
-    db/                     models, session, repositories
+    incidents/              incident state machine + applying its decisions
+    notify/                 SES email, the run summary (digest), alert and email templates
+    reports/                daily rollups, the monthly report
+    db/                     models, session, baselines, store.py (the database file in S3)
     observability/          JSON logging, EMF metrics
-    config.py               settings from env / SSM
+    brand.py                Tideline's words, status tones and favicon
+    schedule.py             the 1st-and-15th schedule, for the dashboard and reports
+    config.py               settings from the environment
     sites.py                sites.yaml validation and idempotent seeding
-    cli.py                  `tideline migrate | seed | worker | check`
+    cli.py                  `tideline migrate | seed | run | api | check | rollup | report`
   tests/
-    unit/                   checks, incident rules, report maths
-    integration/            API + DB against real Postgres
-  infra/                    Terraform: network/SG, EC2, IAM, ECR, S3, SSM document, GitHub OIDC
-  deploy/                   what runs on the server: compose.prod.yaml, Caddyfile, deploy.sh
-  scripts/                  bootstrap_state.sh (Terraform state bucket), put_secrets.sh (SSM)
-  deploy/restore.sh         check a backup, or replace the live database with one
+    unit/                   checks, incident rules, schedule, summary email, S3 store, report wording
+    integration/            API, runs, reports and the Lambda handlers against real SQLite
+  infra/                    Terraform: Lambda, scheduler, CloudFront, IAM, ECR, S3, SES, alarm, budget, GitHub OIDC
+  scripts/                  deploy.sh, demo.sh, put_secrets.sh (SSM), bootstrap_state.sh, postgres_to_sqlite.py
   docs/
     architecture.md
+    brand.md
     local-dev.md            run, demo, test
-    runbook.md              deploy, roll back, restore a backup, rotate secrets, accept DNS change
+    runbook.md              deploy, run now, roll back, restore, rotate secrets, accept a DNS change
     threat-model.md
-    decisions/              short ADRs (compute choice, scheduling, retention)
+    decisions/              short ADRs
   .github/workflows/
-    ci.yml                  ruff, mypy, pytest (with a Postgres service) on every push/PR
-    deploy.yml              on main: build, push to ECR, deploy via SSM, health-check
+    ci.yml                  ruff, mypy, pytest, the demo, and the image, on every push/PR
+    deploy.yml              on main: build, push to ECR, update both functions, migrate, health-check
 ```
 
 The real site list lives in the database (seeded from a git-ignored `sites.yaml`; `sites.example.yaml` is committed), so the repo can be public without publishing client configuration.
@@ -228,7 +237,7 @@ The real site list lives in the database (seeded from a git-ignored `sites.yaml`
 
 ## 6. Build plan
 
-Each milestone ends with something working and verified, not "code written". Work in order.
+Each milestone ends with something working and verified, not "code written". Work in order. M0 to M5 built version 1 (the EC2 server) and are kept as they happened; M6 is the move to Lambda.
 
 **M0: Accounts and tools (done 2026-09-17)**
 - Create the AWS account. Turn on MFA for the root user, then stop using root: create an IAM Identity Center admin user.
@@ -268,6 +277,13 @@ Each milestone ends with something working and verified, not "code written". Wor
 - Checks 7–8 (broken links, contact form health).
 - Done when: the first monthly report for all 11 sites is in Owen's inbox. **Done 2026-09-18.** Reports are built from daily rollups, so they survive the 90-day purge of raw results, and they are viewable at `/reports/{site_id}/{yyyy-mm}` as well as emailed.
 
+**M6: Pay-per-use** (done 2026-09-18)
+- Owen's budget: under USD 3 a month, with checks once or twice a month. Replace the always-on server with two Lambda functions, EventBridge Scheduler (1st and 15th), CloudFront for the domain, and SQLite in S3 instead of Postgres.
+- One summary email per run instead of an email per incident; reports and the dashboard reworded for two checks a month.
+- A sign-in page, because the browser's basic-auth box cannot work behind a Lambda function URL.
+- Production data moved across with every row counted (11 sites, 88 checks, 2,687 results, 28 incidents); the final Postgres backup is kept in S3.
+- Done when: a scheduled-style run succeeds on Lambda and the dashboard serves through CloudFront. **Verified 2026-09-18**: 86 checks in 21 s on Lambda.
+
 **Later, only with a reason:** public status pages per client, Slack/SMS alerts, a second probe location, RDS/ECS migration, checks for client Keystatic Cloud or Square integrations, selling it as part of a maintenance plan.
 
 ---
@@ -283,18 +299,23 @@ The rules from `Career/Resume Rules.md` and `Career/Master Source.md` apply: **n
 
 A draft résumé line, for once it is true:
 
-> Built and deployed a Python monitoring service (FastAPI, Postgres, Docker, AWS) that checks 11 production client websites for downtime, certificate, domain and DNS failures, with CI/CD through GitHub Actions, Terraform, CloudWatch alarms and email alerting.
+> Built and deployed a Python monitoring service (FastAPI, SQL, Docker, AWS Lambda) that checks 11 production client websites for downtime, certificate, domain and DNS failures, with Terraform, CloudWatch alarms and email alerting; cut its AWS cost from about USD 20 a month to under 1 by moving from an EC2 server to Lambda.
+
+(Every number in that line needs checking against the bill and the repo before it is used: see the rule above.)
 
 ---
 
 ## 8. Cost
 
-Roughly **USD 15–20/month**: the `t4g.small` instance, a 20 GB gp3 volume, a small amount of CloudWatch logs, metrics and alarms, S3 backups, and SES (near zero at this volume). Confirm with the AWS pricing calculator for `ca-central-1` before M3. New AWS accounts currently come with starter credits; check the terms at signup. The budget alarm in M0 is not optional.
+**Target: under USD 3 a month. Expected: under USD 1.** Twice-monthly runs sit inside AWS's always-free allowances for Lambda, EventBridge Scheduler, CloudFront, CloudWatch (under 10 metrics and alarms), SNS and SSM Parameter Store. What is left is storage: S3 (the database, about 1 MB, plus its versions) and ECR (the image, kept to the last 3), a few cents, and SES at USD 0.10 per 1,000 emails. A budget alert emails Owen if the month heads past USD 3.
+
+Version 1 (EC2, 2026-09-17 to 18) cost about USD 20 a month: the instance about 13.40, its public IP 3.65, its disks 2.65. September 2026's bill includes about two days of it.
 
 ---
 
 ## 9. Open decisions (Owen)
 
-1. ~~**Name.**~~ Decided 2026-09-17: **Tideline** (by OBdesign). "Sitewatch" collides with getsitewatch.com, a website-monitoring product for agencies with the same feature set. Brand proposal (logo, deep-sea blue palette, type, screens): https://claude.ai/artifact/V8A2dKs2WJL8Su5XogUFNJ. The code, repo and AWS resources still say `sitewatch` until the planned rename.
+1. ~~**Name.**~~ Decided 2026-09-17: **Tideline** (by OBdesign). "Sitewatch" collides with getsitewatch.com, a website-monitoring product for agencies with the same feature set. Brand proposal (logo, deep-sea blue palette, type, screens): https://claude.ai/artifact/V8A2dKs2WJL8Su5XogUFNJ. The code and repo were renamed the same day; some AWS names keep `sitewatch` (docs/brand.md, "The rename").
 2. ~~**Public or private repo.**~~ Decided 2026-09-17: public.
-3. ~~**Dashboard address.**~~ Decided: `status.obwebdesign.ca`, A record at Hostinger to 15.175.12.202.
+3. ~~**Dashboard address.**~~ Decided: `status.obwebdesign.ca`. Since 2026-09-18 a CNAME at Hostinger to CloudFront (see docs/runbook.md); version 1's A record to 15.175.12.202 must not remain, because that IP has been released.
+4. ~~**Cost ceiling.**~~ Decided 2026-09-18: under USD 3 a month, checks on the 1st and 15th.

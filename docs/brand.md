@@ -70,6 +70,7 @@ Calm and specific. One sentence that says how things are, then the facts.
 - Numbers under thirteen are words in headlines ("Two sites need you"); figures elsewhere.
 - Dates the way a person writes them: 14 December 2026.
 - Times in Pacific time (the display zone), labelled; everything stored stays UTC.
+- Say what was measured: "up at 2 of 2 checks", not an uptime percentage two checks cannot support.
 
 ### Alert subjects
 
@@ -94,8 +95,9 @@ Standing gaps like a missing DMARC record show in "What was watched" instead.
 ## Layout
 
 - Paper page, Deep header with the gradient hero.
-- The 30-day strip: one cell per day, coloured by that day's uptime. Hollow
-  cells are days before Tideline was watching.
+- The strip of recent checks: one cell per run (the last 12, six months), up,
+  down, or up only on the retry. Hollow cells are runs before Tideline was
+  watching.
 - Works at phone width: the nav becomes a tab row under the header below 860px,
   and less important table columns hide below 860px and 560px.
 - Motion only where it carries meaning (the status period breathes), and none
@@ -106,21 +108,30 @@ Standing gaps like a missing DMARC record show in "What was watched" instead.
 Sitewatch was the working name until 2026-09-17, when it turned out to collide
 with getsitewatch.com, a monitoring product for agencies. Everything a person
 sees, and everything in the code, now says Tideline: the dashboard, alert
-emails, reports, the Python package (`tideline`), the CLI (`tideline worker`),
+emails, reports, the Python package (`tideline`), the CLI (`tideline run`),
 settings (`TIDELINE_*`), log names, the user agent sent to client sites, and
 the docs.
 
-Some names still say `sitewatch`, on purpose, because they identify things that
-hold data or secrets and cannot be renamed in place:
+Some names still say `sitewatch`, on purpose: they belong to AWS resources that
+hold data, secrets or permissions, and AWS cannot rename them in place.
+Renaming would mean replacing each one (moving the database and its history,
+moving the secrets, and confirming the alarm email again) for a name nobody sees.
 
-| Name | Why it stays for now |
+| Name | What it is |
 |---|---|
-| `/opt/sitewatch` on the server, and `env.sh` (`SITEWATCH_BUCKET` and friends) | Written when the instance was created. Changes only with a rebuild. |
-| The Postgres database and user `sitewatch` | Renaming means taking the database offline; it gains nothing. |
-| The compose project `sitewatch` in production | Containers named `sitewatch-*`; changing it needs a planned restart. |
-| AWS names that hold data, secrets or permissions: the S3 buckets, the ECR repo, the `/sitewatch/*` SSM parameters, the `sitewatch-alarms` SNS topic, IAM roles, the security group and the `/sitewatch/containers` log group | Most AWS names are fixed at creation, so renaming means replacing the resource: moving backups and images, re-confirming the alarm email, moving secrets, rebuilding the server. Not worth it for a name nobody sees. |
+| `sitewatch-data-053578820490` | the S3 bucket holding the database |
+| `sitewatch-tfstate-053578820490` | the S3 bucket holding Terraform's state |
+| `sitewatch` | the ECR image repository |
+| `/sitewatch/*` | the SSM parameters: secrets and the site list |
+| `sitewatch-alarms` | the SNS topic that emails alarms to Owen |
+| `sitewatch-github-deploy` | the IAM role GitHub Actions assumes |
+| `--profile sitewatch` | the AWS CLI profile on Owen's laptop |
+| `~/OBDesign/Systems/sitewatch` | the local folder |
 
-Renamed in AWS on 2026-09-18 (`terraform apply`, no downtime): the alarms
-(`tideline-*`), the CloudWatch dashboard, the deploy document (`tideline-deploy`),
-the metric namespace (`Tideline`), every resource's tags, and the GitHub deploy
-trust (`repo:Owenbrown18/tideline`).
+Version 1's server names (`/opt/sitewatch`, the `sitewatch` Postgres database,
+the compose project) went away with the server on 2026-09-18.
+
+Everything created since is named `tideline`: the two Lambda functions and
+their roles, the schedule, the alarm, the CloudWatch dashboard, the budget, the
+metric namespace (`Tideline`), and every resource's tags. The GitHub deploy trust
+names `repo:Owenbrown18/tideline`.

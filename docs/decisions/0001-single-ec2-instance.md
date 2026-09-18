@@ -1,5 +1,7 @@
 # 0001: One EC2 instance running docker compose
 
+> **Superseded on 2026-09-18 by [0005](0005-serverless-twice-monthly.md)** (twice-monthly runs on Lambda). Kept as it was decided.
+
 **Status:** accepted, 2026-09-17
 
 **Context.** Tideline's job is making outbound requests to 11 sites. It needs
