@@ -90,7 +90,7 @@ Seed list, the 11 live sites (from `Career/Master Source.md`): davesbakery.ca, c
 **Two processes, one image.** The same Docker image runs as `api` or `worker` depending on its command.
 
 - **worker**: a scheduler (APScheduler) that runs each check on its interval with a concurrency limit. Every result is written to Postgres. After each result, the incident engine decides whether an incident opens, stays open or resolves, and sends alerts. It emits a heartbeat metric every cycle.
-- **api**: FastAPI. JSON endpoints plus a small server-rendered dashboard (Jinja templates, no front-end framework: this project is about the backend). Behind Caddy, which handles HTTPS automatically.
+- **api**: FastAPI. JSON endpoints plus the Tideline dashboard, server-rendered (Jinja templates and one stylesheet, no front-end framework and no JavaScript). Behind Caddy, which handles HTTPS automatically. The look, the status shapes and the wording rules are in [docs/brand.md](docs/brand.md).
 - **postgres**: Postgres 16 in a container on the instance's EBS volume, dumped nightly to S3 with 30-day retention. A backup that has never been restored is not a backup, so the restore is tested and written up in `docs/runbook.md`.
 
 ### Incident rules
@@ -123,10 +123,14 @@ GET  /sites/{id}                      checks, latest results, open incidents
 GET  /sites/{id}/uptime?days=30       uptime % and response-time percentiles
 GET  /incidents?open=true
 POST /sites/{id}/dns-baseline/accept
-GET  /                                 dashboard (HTML)
+GET  /                                 dashboard: overview (HTML)
+GET  /sites/{id}/view                  dashboard: one site, its checks and incidents
+GET  /incidents/view                   dashboard: open and resolved incidents
+GET  /reports                          dashboard: every monthly report
 GET  /reports/{site_id}/{yyyy-mm}      monthly report (HTML, also emailed to Owen)
+GET  /favicon.svg                      the T. mark, its period in the worst current status
 ```
-Everything except `/healthz` requires auth (a bearer token for the API, basic auth for the dashboard to start).
+Everything except `/healthz` requires auth (a bearer token for the API, basic auth for the dashboard to start). The dashboard's own "accept DNS" button posts to `/sites/{id}/dns-baseline/accept-form`, which refuses any request that did not come from the dashboard's own origin.
 
 ---
 
@@ -291,6 +295,6 @@ Roughly **USD 15–20/month**: the `t4g.small` instance, a 20 GB gp3 volume, a s
 
 ## 9. Open decisions (Owen)
 
-1. ~~**Name.**~~ Decided 2026-09-18: **Tideline** (by OBdesign). "Sitewatch" collides with getsitewatch.com, a website-monitoring product for agencies with the same feature set. Brand proposal (logo, deep-sea blue palette, type, screens): https://claude.ai/artifact/V8A2dKs2WJL8Su5XogUFNJ. The code, repo and AWS resources still say `sitewatch` until the planned rename.
+1. ~~**Name.**~~ Decided 2026-09-17: **Tideline** (by OBdesign). "Sitewatch" collides with getsitewatch.com, a website-monitoring product for agencies with the same feature set. Brand proposal (logo, deep-sea blue palette, type, screens): https://claude.ai/artifact/V8A2dKs2WJL8Su5XogUFNJ. The code, repo and AWS resources still say `sitewatch` until the planned rename.
 2. ~~**Public or private repo.**~~ Decided 2026-09-17: public.
 3. ~~**Dashboard address.**~~ Decided: `status.obwebdesign.ca`, A record at Hostinger to 15.175.12.202.
