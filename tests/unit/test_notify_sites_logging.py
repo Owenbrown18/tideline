@@ -83,13 +83,17 @@ def test_alert_subjects_name_the_site_and_the_check(overrides, subject):
     assert render_subject(message(**overrides)) == subject
 
 
-def test_resolved_alert_says_how_long_it_lasted():
-    msg = message(kind="resolved", resolved_at=FIXED_NOW + timedelta(minutes=47))
-    assert render_subject(msg) == "Fixed: Daves' Bakery, after 47 min"
+def test_resolved_alert_says_when_it_was_found_and_fixed_by():
+    msg = message(kind="resolved", resolved_at=FIXED_NOW + timedelta(days=14))
+    # Not "after 14 days": two checks a month cannot know how long it lasted.
+    assert render_subject(msg) == "Fixed: Daves' Bakery"
     body = render_body(msg)
     assert body.startswith("Daves' Bakery is back up.")
     assert "It was: https://davesbakery.ca/ is down: HTTP 503." in body
-    assert "47 min" in body
+    facts = dict(describe(msg, zone="America/Vancouver").facts)
+    assert facts["Found"].startswith("Thursday 17 September")
+    assert facts["Fixed by"].startswith("Thursday 1 October")
+    assert "Lasted" not in body
     # Nothing to do once it is fixed.
     assert "What to do" not in body
 
@@ -97,7 +101,7 @@ def test_resolved_alert_says_how_long_it_lasted():
 def test_alert_times_are_in_pacific_time():
     # FIXED_NOW is 12:00 UTC, which is 05:00 in Vancouver in September (PDT).
     facts = dict(describe(message(), zone="America/Vancouver").facts)
-    assert facts["Since"].endswith("05:00 PDT")
+    assert facts["Found"].endswith("05:00 PDT")
 
 
 def test_alert_links_to_the_site_page_only_when_the_address_is_known():

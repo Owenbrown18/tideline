@@ -20,7 +20,7 @@
       {{ m.shape('down' if i.severity == 'critical' else 'warn') }}
       <span class="site-name"><strong>{{ i.site_name }}</strong><span class="mono">{{ i.domain }}</span></span>
       <span class="what check-val">{{ i.summary }}</span>
-      <span class="mono muted" style="font-size: 13px;">since {{ i.opened_at|local('%a %-d %b %H:%M') }}</span>
+      <span class="mono muted" style="font-size: 13px;">found {{ i.opened_at|local('%-d %b') }}</span>
     </a>
     {% else %}
     <p class="quiet">No open incidents.</p>
@@ -36,7 +36,7 @@
       {{ m.shape('up') }}
       <span class="site-name"><strong>{{ i.site_name }}</strong><span class="mono">{{ i.domain }}</span></span>
       <span class="what check-val">{{ i.summary }}</span>
-      <span class="mono muted" style="font-size: 13px;">{{ i.opened_at|local('%-d %b') }} · {{ (i.duration_seconds // 60) }} min</span>
+      <span class="mono muted" style="font-size: 13px;">found {{ i.opened_at|local('%-d %b') }} · fixed by {{ i.resolved_at|local('%-d %b') }}</span>
     </a>
     {% else %}
     <p class="quiet">Nothing resolved in the last 30 days.</p>

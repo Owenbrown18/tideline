@@ -20,3 +20,6 @@ build/
 *.tfstate.*
 
 .DS_Store
+
+# scripts/photos.sh writes this while it runs
+src/tideline/api/static/_phone-frame.html

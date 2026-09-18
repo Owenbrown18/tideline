@@ -16,7 +16,7 @@
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
-{% if demo %}
+{% if demo and demo_banner %}
 <div class="demo-bar" role="note">
   <span><strong>Live demo.</strong> Eight invented businesses, six months of real Tideline runs against a simulated web. Real client dashboards are private.</span>
   <a href="https://obwebdesign.ca" rel="noopener">OBdesign</a>
@@ -50,7 +50,7 @@
 
 <dialog id="report-dialog" class="report-dialog" aria-labelledby="report-title">
   <div class="report-bar">
-    <div class="report-name">
+    <div class="report-name" tabindex="-1" autofocus>
       <span class="eyebrow">Monthly report</span>
       <strong id="report-title" data-title></strong>
     </div>

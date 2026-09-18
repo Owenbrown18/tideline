@@ -265,6 +265,7 @@ async def _page(
             "version": __version__,
             "active": active,
             "demo": request.app.state.settings.demo_mode,
+            "demo_banner": request.app.state.settings.demo_banner,
             **context,
         },
     )

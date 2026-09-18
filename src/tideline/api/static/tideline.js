@@ -38,10 +38,7 @@
   const newTab = dialog.querySelector("[data-newtab]");
   const print = dialog.querySelector("[data-print]");
 
-  document.addEventListener("click", (event) => {
-    const link = event.target.closest("a[data-report]");
-    if (!link || event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
-    event.preventDefault();
+  const open = (link) => {
     const url = link.getAttribute("href");
     title.textContent = link.dataset.report;
     download.href = url + "?download=1";
@@ -49,7 +46,19 @@
     print.disabled = true;
     frame.src = url;
     dialog.showModal();
+  };
+  document.addEventListener("click", (event) => {
+    const link = event.target.closest("a[data-report]");
+    if (!link || event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
+    event.preventDefault();
+    open(link);
   });
+  // A link like /reports#report=4/2026-08 opens that report straight away.
+  const wanted = window.location.hash.match(/^#report=(\d+\/\d{4}-\d{2})$/);
+  if (wanted) {
+    const link = document.querySelector(`a[data-report][href="/reports/${wanted[1]}"]`);
+    if (link) open(link);
+  }
   frame.addEventListener("load", () => { print.disabled = frame.src === "about:blank"; });
   print.addEventListener("click", () => frame.contentWindow.print());
   dialog.querySelector("[data-close]").addEventListener("click", () => dialog.close());

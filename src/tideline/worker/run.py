@@ -157,8 +157,13 @@ async def check_all(
         await engine.dispose()
 
 
-async def deliver(settings: Settings, outbox: Outbox, report: RunReport) -> RunReport:
-    """Email what the run found, then record what was sent. Updates `report`."""
+async def deliver(
+    settings: Settings, outbox: Outbox, report: RunReport, sent_at: datetime | None = None
+) -> RunReport:
+    """Email what the run found, then record what was sent. Updates `report`.
+
+    `sent_at` is when the alerts are recorded as sent: now, unless the run was
+    given its own clock (tests and the showcase replay past runs)."""
     engine = make_engine(settings.database_url)
     sessionmaker = make_sessionmaker(engine)
     try:
@@ -172,7 +177,7 @@ async def deliver(settings: Settings, outbox: Outbox, report: RunReport) -> RunR
         else:
             if report.summary_emailed:
                 async with sessionmaker() as session, session.begin():
-                    await outbox.digest.record(session, datetime.now(UTC))
+                    await outbox.digest.record(session, sent_at or datetime.now(UTC))
 
         if outbox.report_month is not None:
             year, month = outbox.report_month
@@ -209,7 +214,7 @@ async def run(
         now=now,
         clients=clients,
     )
-    return await deliver(settings, outbox, report)
+    return await deliver(settings, outbox, report, sent_at=now)
 
 
 Sessions = async_sessionmaker[AsyncSession]

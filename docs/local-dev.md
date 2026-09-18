@@ -36,6 +36,13 @@ site (an incident opens and a "1 new problem" summary is logged), starts it
 again (it resolves, "1 fixed"), and prints the incident row. This is what the
 CI workflow runs too.
 
+## The showcase and photos
+```bash
+uv run tideline showcase --out showcase.db     # six months of invented businesses (a minute)
+TIDELINE_DEMO_MODE=true TIDELINE_DATABASE_URL=sqlite+aiosqlite:///showcase.db uv run tideline api
+scripts/photos.sh                              # every product photo, into the content folder
+```
+
 ## Tests, lint, types
 ```bash
 uv run pytest

@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     # over the showcase database of invented businesses. Never set this on the
     # real dashboard: it removes the password.
     demo_mode: bool = False
+    # The demo's "invented businesses" banner. Only hidden for product photos
+    # taken on a laptop; the public demo always shows it.
+    demo_banner: bool = True
     # How long the showcase's simulated pages take to load, as a multiple of a
     # real site (1.0: realistic response times; 0: instant, for tests).
     showcase_pace: float = 1.0

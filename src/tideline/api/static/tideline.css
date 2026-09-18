@@ -275,3 +275,14 @@ a:hover { color: var(--up-text); }
 .demo-bar { display: flex; justify-content: center; align-items: center; gap: 16px; flex-wrap: wrap; padding: 9px 16px; background: #16304c; color: var(--haze); font-size: 13px; text-align: center; }
 .demo-bar strong { color: var(--paper); font-weight: 600; }
 .demo-bar a { color: var(--tide); font-weight: 600; }
+
+/* The hero's text takes the screen's width, never its own: on a phone a long
+   headline wraps instead of widening the page (found in the phone photos). */
+.hero-copy { min-width: 0; max-width: 100%; }
+.hero h1 { overflow-wrap: anywhere; }
+@media (max-width: 1100px) {
+  .hero-inner { align-items: stretch; }
+}
+/* The dialog's title takes focus when it opens (so no button looks pressed);
+   it is not a control, so it shows no ring. */
+.report-name:focus { outline: none; }

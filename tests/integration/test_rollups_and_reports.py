@@ -167,14 +167,14 @@ async def test_report_reads_from_the_rollups(sessionmaker, site_with_a_day):
     assert "Daves&#39; Bakery" in html
     assert "0 of 1" in html
     assert "Tideline checked your website once this month, on 10 September." in html
-    assert "fixed after 10 min" in html
+    assert "fixed by 9 September" in html
     assert "is down: HTTP 503" in html
 
     text = render_text(report)
     assert "Up at: 0 of 1 check\n" in text
     assert "It was down at that check; what happened is below." in text
     assert "What happened:" in text
-    assert "fixed after 10 min" in text
+    assert "fixed by 9 September" in text
 
 
 async def test_report_survives_the_raw_results_being_purged(sessionmaker, site_with_a_day):
@@ -284,7 +284,7 @@ async def test_site_page_shows_the_recent_checks(client, sessionmaker, site_with
     assert "Last 12 checks" in page.text
     # Two of that day's uptime checks failed, so it does not count as an up run.
     assert "Up at 0 of 1 check" in page.text
-    assert "10 min" in page.text  # the resolved incident's duration
+    assert "fixed by 9 Sep" in page.text  # 03:10 UTC on the 10th is the 9th in Victoria
     assert "watched since 10 September" in page.text
 
 

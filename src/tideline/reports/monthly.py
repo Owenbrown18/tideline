@@ -325,7 +325,7 @@ def render_text(report: MonthlyReport) -> str:
         lines += ["", "What happened:"]
         for incident in events:
             ended = (
-                f"fixed after {format_duration(incident.resolved_at - incident.opened_at)}"
+                f"fixed by {_local(incident.resolved_at, '%-d %B')}"
                 if incident.resolved_at
                 else "still open"
             )

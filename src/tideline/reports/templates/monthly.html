@@ -98,7 +98,7 @@
     {% for i in events %}
     <div style="padding:12px 0;border-bottom:1px solid #efede8;font-family:{{ sans }};font-size:15px;line-height:1.5;color:#1e1e1e;">
       <strong style="font-weight:600;">{{ i.opened_at|local('%-d %B, %H:%M') }}</strong>
-      <span style="color:#636c68;">{% if i.resolved_at %} · fixed after {{ format_duration(i.resolved_at - i.opened_at) }}{% else %} · still open{% endif %}</span><br>
+      <span style="color:#636c68;">{% if i.resolved_at %} · fixed by {{ i.resolved_at|local('%-d %B') }}{% else %} · still open{% endif %}</span><br>
       <span style="color:#3a403e;">{{ i.check_kind|checkname }}: {{ i.summary }}</span>
     </div>
     {% endfor %}

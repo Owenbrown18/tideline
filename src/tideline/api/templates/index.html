@@ -17,7 +17,7 @@
       {{ m.shape('down') }}
       <span class="site-name"><strong>{{ n.site_name }}</strong><span class="mono">{{ n.domain }}</span></span>
       <span class="what">{{ n.summary }}</span>
-      <span class="since">{{ n.check_name }} · since {{ n.opened_at|local('%a %H:%M') }}</span>
+      <span class="since">{{ n.check_name }} · found {{ n.opened_at|local('%-d %b') }}</span>
       <a class="btn" href="/sites/{{ n.site_id }}/view">Open</a>
     </div>
     {% endfor %}
@@ -26,7 +26,7 @@
       {{ m.shape('warn') }}
       <span class="site-name"><strong>{{ o.warnings|length }} warning{{ '' if o.warnings|length == 1 else 's' }}</strong><span class="mono">{{ o.warnings|map(attribute='check_name')|unique|join(', ') }}</span></span>
       <span class="what">Nothing is breaking. {{ 'Each one is' if o.warnings|length > 1 else 'It is' }} worth fixing when you have time.</span>
-      <span class="since">oldest since {{ (o.warnings|min(attribute='opened_at')).opened_at|local('%a %H:%M') }}</span>
+      <span class="since">oldest found {{ (o.warnings|min(attribute='opened_at')).opened_at|local('%-d %b') }}</span>
       <a class="btn" href="/incidents/view">Review</a>
     </div>
     {% endif %}

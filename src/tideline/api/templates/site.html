@@ -47,7 +47,7 @@
           {{ m.shape('up') }}
           <span class="site-name"><strong>{{ i.check_kind|checkname }}</strong><span class="mono">{{ i.opened_at|local('%-d %b %H:%M') }}</span></span>
           <span class="what check-val">{{ i.summary }}</span>
-          <span class="mono muted" style="font-size: 13px;">{{ (i.duration_seconds // 60) }} min</span>
+          <span class="mono muted" style="font-size: 13px;">fixed by {{ i.resolved_at|local('%-d %b') }}</span>
         </div>
         {% endfor %}
       </div>

@@ -107,12 +107,14 @@ def describe(msg: AlertMessage, zone: str = "", base_url: str | None = None) -> 
     facts = [
         ("Site", msg.domain),
         ("Check", brand.check_name(msg.check_kind)),
-        ("Since", brand.local(msg.opened_at, when, zone)),
+        # "Found", not "since": the check that found it is all Tideline knows.
+        # Runs are two weeks apart, so the problem may have started earlier.
+        ("Found", brand.local(msg.opened_at, when, zone)),
     ]
-    if msg.duration is not None and msg.resolved_at is not None:
-        subject += f", after {format_duration(msg.duration)}"
-        facts.append(("Fixed", brand.local(msg.resolved_at, when, zone)))
-        facts.append(("Lasted", format_duration(msg.duration)))
+    if msg.resolved_at is not None:
+        # And "fixed by": it was fixed at some point before this check. Saying
+        # "lasted 14 days" would claim precision two checks a month cannot have.
+        facts.append(("Fixed by", brand.local(msg.resolved_at, when, zone)))
 
     footer = {
         "open": "You'll get one more email when this is fixed.",

@@ -176,6 +176,19 @@ cd infra && terraform output dns_record_for_the_dashboard certificate_validation
 The certificate (ACM, in us-east-1) is validated by a CNAME at Hostinger and
 renews itself as long as that record stays.
 
+## The public demo
+https://tideline.obwebdesign.ca is `tideline-demo`: the dashboard in demo mode
+(no sign-in, read-only) over `s3://sitewatch-data-053578820490/showcase.db`.
+The scheduler rebuilds that file at 06:00 Pacific every day; rebuild it now:
+
+```bash
+aws lambda invoke --function-name tideline-demo --cli-binary-format raw-in-base64-out \
+  --payload '{"task":"showcase"}' /dev/stdout
+```
+
+It has its own role (the showcase file only) and cannot see real data. To take
+product photos from the same data: `scripts/photos.sh` (Chrome and ffmpeg).
+
 ## If the dashboard is down
 1. `curl -si https://status.obwebdesign.ca/healthz` (expect 200).
 2. `aws logs tail /aws/lambda/tideline-web --since 30m` for the error.

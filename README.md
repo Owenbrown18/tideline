@@ -4,9 +4,11 @@
 
 It is a Python service on AWS Lambda, built as a container image, with Terraform, tests, structured logs, metrics and an alarm. It costs well under USD 1 a month. Its working name was Sitewatch; [docs/brand.md](docs/brand.md) explains the rename.
 
-> **Status (2026-09-18): live on AWS Lambda.** https://status.obwebdesign.ca/ (sign-in required) watches 11 sites with 86 checks across 8 kinds. A full run takes about 21 seconds on Lambda. 323 tests.
+> **Status (2026-09-18): live on AWS Lambda.** https://status.obwebdesign.ca/ (sign-in required) watches 11 sites with 86 checks across 8 kinds. A full run takes about 21 seconds on Lambda. 376 tests.
 >
 > **History:** version 1 (2026-09-17) ran every 5 minutes on an always-on EC2 server with Postgres, about USD 20 a month. Owen only needs a twice-monthly check and a monthly report, so on 2026-09-18 it moved to Lambda, a scheduler and a SQLite file in S3 ([decision 0005](docs/decisions/0005-serverless-twice-monthly.md)). The server-era milestones below are kept as they happened.
+>
+> **See it working:** a public, read-only demo with eight invented businesses at https://tideline.obwebdesign.ca ([decision 0006](docs/decisions/0006-public-demo.md)). Its data is made by the product itself: `tideline showcase` replays six months of real runs against a simulated web.
 >
 > **Run it locally:** [docs/local-dev.md](docs/local-dev.md). **How the code fits together:** [docs/architecture.md](docs/architecture.md). **Operating it:** [docs/runbook.md](docs/runbook.md).
 
@@ -211,6 +213,7 @@ tideline/
     observability/          JSON logging, EMF metrics
     brand.py                Tideline's words, status tones and favicon
     schedule.py             the 1st-and-15th schedule, for the dashboard and reports
+    showcase.py             six months of invented businesses, run through the real product
     config.py               settings from the environment
     sites.py                sites.yaml validation and idempotent seeding
     cli.py                  `tideline migrate | seed | run | api | check | rollup | report`
@@ -218,7 +221,7 @@ tideline/
     unit/                   checks, incident rules, schedule, summary email, S3 store, report wording
     integration/            API, runs, reports and the Lambda handlers against real SQLite
   infra/                    Terraform: Lambda, scheduler, CloudFront, IAM, ECR, S3, SES, alarm, budget, GitHub OIDC
-  scripts/                  deploy.sh, demo.sh, put_secrets.sh (SSM), bootstrap_state.sh, postgres_to_sqlite.py
+  scripts/                  deploy.sh, demo.sh, photos.sh, put_secrets.sh (SSM), bootstrap_state.sh, postgres_to_sqlite.py
   docs/
     architecture.md
     brand.md
