@@ -1,7 +1,7 @@
 # Runbook
 
 Everything you might need to do to Sitewatch in production, with the commands.
-Account 053578820490, region ca-central-1, instance `i-005da610a7d4b5079`.
+Account 053578820490, region ca-central-1, instance `i-010dc8609621b4d18`.
 
 Sign in first:
 
@@ -13,7 +13,7 @@ aws sso login --profile sitewatch
 There is no SSH port. Session Manager opens a shell through the AWS API:
 
 ```bash
-aws ssm start-session --target i-005da610a7d4b5079
+aws ssm start-session --target i-010dc8609621b4d18
 ```
 
 Then `sudo -i`, and the stack lives in `/opt/sitewatch`:
@@ -34,17 +34,17 @@ By hand (same steps the workflow runs):
 SHA=$(git rev-parse --short HEAD)
 aws ecr get-login-password | docker login --username AWS --password-stdin 053578820490.dkr.ecr.ca-central-1.amazonaws.com
 docker buildx build --platform linux/arm64 -t 053578820490.dkr.ecr.ca-central-1.amazonaws.com/sitewatch:$SHA --push .
-aws s3 cp deploy/deploy.sh s3://sitewatch-data-053578820490/deploy/deploy.sh
-aws s3 cp deploy/compose.prod.yaml s3://sitewatch-data-053578820490/deploy/compose.prod.yaml
-aws s3 cp deploy/Caddyfile s3://sitewatch-data-053578820490/deploy/Caddyfile
+for f in deploy.sh compose.prod.yaml Caddyfile backup.sh restore.sh cloudwatch-agent.json; do
+  aws s3 cp deploy/$f s3://sitewatch-data-053578820490/deploy/$f
+done
 aws ssm send-command --document-name sitewatch-deploy \
-  --instance-ids i-005da610a7d4b5079 --parameters imageTag=$SHA
+  --instance-ids i-010dc8609621b4d18 --parameters imageTag=$SHA
 ```
 
 Watch it:
 
 ```bash
-aws ssm get-command-invocation --command-id <id> --instance-id i-005da610a7d4b5079 \
+aws ssm get-command-invocation --command-id <id> --instance-id i-010dc8609621b4d18 \
   --query '[Status,StandardOutputContent]' --output text
 ```
 
@@ -59,7 +59,7 @@ To go back on purpose, deploy an older tag:
 aws ecr describe-images --repository-name sitewatch \
   --query 'reverse(sort_by(imageDetails,&imagePushedAt))[].[imageTags[0],imagePushedAt]' --output table
 aws ssm send-command --document-name sitewatch-deploy \
-  --instance-ids i-005da610a7d4b5079 --parameters imageTag=<older-tag>
+  --instance-ids i-010dc8609621b4d18 --parameters imageTag=<older-tag>
 ```
 
 The currently running tag is in `/opt/sitewatch/current_tag`.
@@ -72,7 +72,7 @@ Terraform state. Changing one and redeploying is the whole procedure:
 aws ssm put-parameter --name /sitewatch/api_token --type SecureString --overwrite \
   --value "$(openssl rand -base64 32 | tr -d '/+=' | cut -c1-40)"
 aws ssm send-command --document-name sitewatch-deploy \
-  --instance-ids i-005da610a7d4b5079 --parameters imageTag=$(cat current_tag)
+  --instance-ids i-010dc8609621b4d18 --parameters imageTag=$(cat current_tag)
 ```
 
 Read the dashboard password:
@@ -99,7 +99,7 @@ compose run --rm --no-deps api sitewatch run-once --kind email_auth --site daves
 ```bash
 ./scripts/put_secrets.sh sites.yaml   # re-uploads the file, keeps existing passwords
 aws ssm send-command --document-name sitewatch-deploy \
-  --instance-ids i-005da610a7d4b5079 --parameters imageTag=$(cat /opt/sitewatch/current_tag)
+  --instance-ids i-010dc8609621b4d18 --parameters imageTag=$(cat /opt/sitewatch/current_tag)
 ```
 
 Seeding is idempotent: sites removed from the file go inactive, and their
@@ -134,7 +134,7 @@ Terraform has `prevent_destroy` on that volume.
 Take one now:
 
 ```bash
-aws ssm start-session --target i-005da610a7d4b5079
+aws ssm start-session --target i-010dc8609621b4d18
 sudo -i && cd /opt/sitewatch
 docker compose --env-file compose.env -f compose.prod.yaml exec -T postgres \
   pg_dump -U sitewatch sitewatch | gzip > /tmp/sitewatch-$(date +%F).sql.gz
