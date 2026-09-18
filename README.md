@@ -291,6 +291,6 @@ Roughly **USD 15–20/month**: the `t4g.small` instance, a 20 GB gp3 volume, a s
 
 ## 9. Open decisions (Owen)
 
-1. **Name.** Sitewatch is a working name.
+1. ~~**Name.**~~ Decided 2026-09-18: **Tideline** (by OBdesign). "Sitewatch" collides with getsitewatch.com, a website-monitoring product for agencies with the same feature set. Brand proposal (logo, deep-sea blue palette, type, screens): https://claude.ai/artifact/V8A2dKs2WJL8Su5XogUFNJ. The code, repo and AWS resources still say `sitewatch` until the planned rename.
 2. ~~**Public or private repo.**~~ Decided 2026-09-17: public.
 3. ~~**Dashboard address.**~~ Decided: `status.obwebdesign.ca`, A record at Hostinger to 15.175.12.202.
