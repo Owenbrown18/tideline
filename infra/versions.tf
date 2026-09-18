@@ -31,7 +31,7 @@ provider "aws" {
     tags = {
       Project   = "tideline"
       ManagedBy = "terraform"
-      Repo      = "github.com/Owenbrown18/tideline"
+      Repo      = "github.com/${var.github_repo}"
     }
   }
 }

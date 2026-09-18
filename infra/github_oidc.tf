@@ -18,7 +18,7 @@ resource "aws_iam_openid_connect_provider" "github" {
 
 resource "aws_iam_role" "github_deploy" {
   name        = "sitewatch-github-deploy"
-  description = "Assumed by GitHub Actions on pushes to main. Pushes images and runs one SSM document."
+  description = "Assumed by GitHub Actions on pushes to main. Pushes the image and points the two functions at it."
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -65,25 +65,13 @@ resource "aws_iam_role_policy" "github_deploy" {
         Resource = aws_ecr_repository.app.arn
       },
       {
-        Sid      = "UploadDeployFiles"
-        Effect   = "Allow"
-        Action   = ["s3:PutObject", "s3:GetObject"]
-        Resource = "${aws_s3_bucket.data.arn}/deploy/*"
-      },
-      {
-        Sid    = "RunTheDeployDocumentOnThisInstanceOnly"
+        Sid    = "PointTheFunctionsAtTheNewImage"
         Effect = "Allow"
-        Action = ["ssm:SendCommand"]
+        Action = ["lambda:UpdateFunctionCode", "lambda:GetFunction", "lambda:InvokeFunction"]
         Resource = [
-          aws_ssm_document.deploy.arn,
-          "arn:aws:ec2:${var.region}:${data.aws_caller_identity.current.account_id}:instance/${aws_instance.app.id}",
+          aws_lambda_function.run.arn,
+          aws_lambda_function.web.arn,
         ]
-      },
-      {
-        Sid      = "WatchTheDeployFinish"
-        Effect   = "Allow"
-        Action   = ["ssm:GetCommandInvocation", "ssm:ListCommandInvocations"]
-        Resource = "*"
       },
     ]
   })

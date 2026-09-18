@@ -1,7 +1,8 @@
-# Two prefixes in one bucket:
-#   backups/  nightly pg_dump files, kept 30 days
-#   deploy/   compose.prod.yaml, Caddyfile and deploy.sh, uploaded by CI and
-#             fetched by the instance during a deploy
+# One private bucket:
+#   tideline.db   the database (SQLite). Versioning keeps every earlier copy for
+#                 90 days, so each run's upload is also a backup.
+#   archive/      the final Postgres backup from before the move to SQLite, kept
+#   backups/      old nightly Postgres backups, expiring on their own
 
 resource "aws_s3_bucket" "data" {
   bucket = "sitewatch-data-053578820490"
@@ -37,7 +38,20 @@ resource "aws_s3_bucket_lifecycle_configuration" "data" {
   bucket = aws_s3_bucket.data.id
 
   rule {
-    id     = "expire-backups"
+    id     = "keep-earlier-databases-90-days"
+    status = "Enabled"
+
+    filter {
+      prefix = "tideline.db"
+    }
+
+    noncurrent_version_expiration {
+      noncurrent_days = 90
+    }
+  }
+
+  rule {
+    id     = "expire-old-postgres-backups"
     status = "Enabled"
 
     filter {
@@ -45,11 +59,28 @@ resource "aws_s3_bucket_lifecycle_configuration" "data" {
     }
 
     expiration {
-      days = var.backup_retention_days
+      days = 30
     }
 
     noncurrent_version_expiration {
       noncurrent_days = 7
+    }
+  }
+
+  rule {
+    id     = "expire-old-deploy-files"
+    status = "Enabled"
+
+    filter {
+      prefix = "deploy/"
+    }
+
+    expiration {
+      days = 1
+    }
+
+    noncurrent_version_expiration {
+      noncurrent_days = 1
     }
   }
 

@@ -1,33 +1,48 @@
-output "public_ip" {
-  description = "Point the DNS A record for the dashboard at this address."
-  value       = aws_eip.app.public_ip
+output "dashboard_url" {
+  description = "Where the dashboard is: CloudFront's address until use_custom_domain is true."
+  value       = var.use_custom_domain ? "https://${var.dashboard_domain}/" : "https://${aws_cloudfront_distribution.dashboard.domain_name}/"
 }
 
-output "instance_id" {
-  description = "For SSM: aws ssm start-session --target <this>"
-  value       = aws_instance.app.id
+output "dns_record_for_the_dashboard" {
+  description = "Add at the DNS host: status CNAME to this."
+  value = {
+    name  = var.dashboard_domain
+    type  = "CNAME"
+    value = aws_cloudfront_distribution.dashboard.domain_name
+  }
+}
+
+output "certificate_validation_record" {
+  description = "Add at the DNS host once, so ACM can issue the certificate."
+  value = [
+    for o in aws_acm_certificate.dashboard.domain_validation_options : {
+      name  = o.resource_record_name
+      type  = o.resource_record_type
+      value = o.resource_record_value
+    }
+  ]
+}
+
+output "certificate_status" {
+  value = aws_acm_certificate.dashboard.status
+}
+
+output "function_url" {
+  description = "The dashboard function itself, behind CloudFront."
+  value       = aws_lambda_function_url.web.function_url
 }
 
 output "ecr_repository" {
-  description = "Where CI pushes the image."
+  description = "Where deploys push the image."
   value       = aws_ecr_repository.app.repository_url
 }
 
 output "github_deploy_role_arn" {
-  description = "Set as the AWS_DEPLOY_ROLE secret (or variable) in GitHub."
+  description = "Set as the AWS_DEPLOY_ROLE variable in GitHub."
   value       = aws_iam_role.github_deploy.arn
 }
 
 output "bucket" {
-  description = "Backups under backups/, deploy files under deploy/."
+  description = "tideline.db (versioned), and the final Postgres backup under archive/."
   value       = aws_s3_bucket.data.bucket
-}
-
-output "deploy_document" {
-  description = "The one SSM document CI may run."
-  value       = aws_ssm_document.deploy.name
-}
-
-output "dashboard_url" {
-  value = "https://${var.dashboard_domain}/"
 }

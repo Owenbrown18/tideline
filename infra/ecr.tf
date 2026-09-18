@@ -2,7 +2,7 @@
 # storage does not creep up: ECR charges per GB stored.
 
 resource "aws_ecr_repository" "app" {
-  name                 = "sitewatch"
+  name                 = "sitewatch" # kept: a rename replaces the repository
   image_tag_mutability = "IMMUTABLE" # a tag always means the same image
   force_delete         = true        # this repo is rebuilt from source any time
 
@@ -17,11 +17,11 @@ resource "aws_ecr_lifecycle_policy" "app" {
   policy = jsonencode({
     rules = [{
       rulePriority = 1
-      description  = "Keep the last 10 images; rollback only ever needs the previous one"
+      description  = "Keep the last 3 images; rollback only ever needs the previous one"
       selection = {
         tagStatus   = "any"
         countType   = "imageCountMoreThan"
-        countNumber = 10
+        countNumber = 3
       }
       action = { type = "expire" }
     }]

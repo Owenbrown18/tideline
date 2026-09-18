@@ -4,16 +4,9 @@ variable "region" {
   default     = "ca-central-1"
 }
 
-variable "instance_type" {
-  description = "Graviton (arm64) instance. t4g.small is 2 vCPU / 2 GiB."
+variable "image_tag" {
+  description = "The image both Lambda functions start from. Deploys change it with `aws lambda update-function-code` (scripts/deploy.sh), so Terraform only sets it on create."
   type        = string
-  default     = "t4g.small"
-}
-
-variable "root_volume_gb" {
-  description = "Root EBS volume size. Holds the OS, images, Postgres data and logs."
-  type        = number
-  default     = 20
 }
 
 variable "github_repo" {
@@ -23,19 +16,31 @@ variable "github_repo" {
 }
 
 variable "dashboard_domain" {
-  description = "Hostname Caddy gets a certificate for."
+  description = "The dashboard's address. A CNAME at the DNS host points it at CloudFront."
   type        = string
   default     = "status.obwebdesign.ca"
 }
 
+variable "use_custom_domain" {
+  description = "false until the certificate's validation record is at the DNS host; then true serves the dashboard on dashboard_domain."
+  type        = bool
+  default     = false
+}
+
 variable "alert_email" {
-  description = "Where SNS alarm notifications go. Owen only, never a client."
+  description = "Where alarm notifications, run summaries and reports go. Owen only, never a client."
   type        = string
   default     = "owenjosephbrown@gmail.com"
 }
 
-variable "backup_retention_days" {
-  description = "How long nightly pg_dump files are kept in S3."
+variable "secrets_prefix" {
+  description = "SSM Parameter Store path of the secrets and the site list (scripts/put_secrets.sh)."
+  type        = string
+  default     = "/sitewatch/"
+}
+
+variable "monthly_budget_usd" {
+  description = "Owen is emailed when the month's AWS bill heads past this."
   type        = number
-  default     = 30
+  default     = 3
 }
