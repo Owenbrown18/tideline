@@ -18,8 +18,8 @@ services:
 
   worker:
     environment:
-      SITEWATCH_UPTIME_RETRY_DELAY_SECONDS: "2"
-      SITEWATCH_HEARTBEAT_SECONDS: "15"
+      TIDELINE_UPTIME_RETRY_DELAY_SECONDS: "2"
+      TIDELINE_HEARTBEAT_SECONDS: "15"
     depends_on:
       fakesite:
         condition: service_started

@@ -1,8 +1,8 @@
-# Sitewatch
+# Tideline
 
 **A monitoring service for every website OBdesign runs.** It checks each live client site around the clock, notices when something breaks or is about to break, tells Owen before the client notices, and keeps the history that proves the sites are healthy.
 
-It is a Python backend running in Docker on AWS, deployed by GitHub Actions, with tests, structured logs, metrics and alarms. The name is a working name.
+It is a Python backend running in Docker on AWS, deployed by GitHub Actions, with tests, structured logs, metrics and alarms. Its working name was Sitewatch; [docs/brand.md](docs/brand.md) explains the rename.
 
 > **Status (2026-09-18): M0 to M5 done and verified on the live system.** https://status.obwebdesign.ca/ watches 11 sites with 88 checks across 8 kinds, emails incidents through SES, emails monthly reports on the 1st, backs up nightly (restore verified), and alarms through CloudWatch and SNS, including a dead-worker alarm measured at 11 min 52 s. 238 tests; the CI workflow passes end to end when run locally with `act`. **One thing outside the code:** GitHub Actions is disabled because the GitHub account is flagged (appeal open), so deploys run from the laptop with the same commands the workflow uses (docs/runbook.md).
 >
@@ -22,7 +22,7 @@ OBdesign has 11 live client sites and no way to know when one of them breaks. To
 - a page links somewhere that no longer exists
 - a site gets hacked and serves spam (Figs & Honey's old WordPress did exactly this)
 
-Sitewatch catches all of those. Longer term it is the engine behind a paid maintenance plan: "your site is watched every five minutes, and here is your monthly report."
+Tideline catches all of those. Longer term it is the engine behind a paid maintenance plan: "your site is watched every five minutes, and here is your monthly report."
 
 ### The career reason
 A scan of the UVic co-op board on 2026-09-17 (143 open postings, 43 software developer roles) counted how often each skill appears:
@@ -102,7 +102,7 @@ Seed list, the 11 live sites (from `Career/Master Source.md`): davesbakery.ca, c
 - An alert that fails to send is retried on the next run; `alerts` only holds alerts that actually went out.
 - Full reasoning: [docs/decisions/0003-incident-and-alert-rules.md](docs/decisions/0003-incident-and-alert-rules.md).
 - DNS drift incidents stay open until Owen accepts the new baseline (`POST /sites/{id}/dns-baseline/accept`, or the CLI).
-- **Sitewatch never emails a client.** Alerts and monthly reports go to Owen only; he decides what to forward. This matches the vault's standing rule that nothing contacts clients automatically.
+- **Tideline never emails a client.** Alerts and monthly reports go to Owen only; he decides what to forward. This matches the vault's standing rule that nothing contacts clients automatically.
 
 ### Data model (first cut)
 ```
@@ -173,7 +173,7 @@ If the worker dies, every site looks fine and nobody is told. So:
 - Nothing listens publicly except Caddy on 80/443. No SSH: shell access goes through SSM Session Manager.
 - Least-privilege IAM: the instance role can read its own parameters, write logs and metrics, pull from ECR, put to its backup bucket and send through SES, and nothing else. The GitHub OIDC role can push to one ECR repo and send one SSM command document.
 - The dashboard and API require auth. Postgres is only reachable on the compose network.
-- Outbound checks send an honest `User-Agent: Sitewatch/1.0 (+https://obwebdesign.ca)` and respect rate limits. The link crawler stays on the client's own host.
+- Outbound checks send an honest `User-Agent: Tideline/1.0 (+https://obwebdesign.ca)` and respect rate limits. The link crawler stays on the client's own host.
 - `docs/threat-model.md`: a short threat model of the service itself (useful practice alongside SENG 360).
 
 ---
@@ -181,7 +181,7 @@ If the worker dies, every site looks fine and nobody is told. So:
 ## 5. Repo layout
 
 ```
-sitewatch/
+tideline/
   README.md                 this brief
   pyproject.toml            uv-managed; ruff, mypy, pytest config
   Dockerfile                multi-stage, non-root user, arm64 + amd64
@@ -193,7 +193,7 @@ sitewatch/
   sites.example.yaml        site list format (the real sites.yaml is git-ignored)
   demo/                     fake site + its sites file for the local demo
   docker/                   postgres init (creates the test database)
-  src/sitewatch/
+  src/tideline/
     api/                    FastAPI app, routes, auth, templates/
     worker/                 scheduler, runner
     checks/                 one module per check kind, each a pure function of (config, clients) -> Result
@@ -203,7 +203,7 @@ sitewatch/
     observability/          JSON logging, EMF metrics
     config.py               settings from env / SSM
     sites.py                sites.yaml validation and idempotent seeding
-    cli.py                  `sitewatch migrate | seed | worker | check`
+    cli.py                  `tideline migrate | seed | worker | check`
   tests/
     unit/                   checks, incident rules, report maths
     integration/            API + DB against real Postgres
@@ -276,7 +276,7 @@ Each milestone ends with something working and verified, not "code written". Wor
 
 The rules from `Career/Resume Rules.md` and `Career/Master Source.md` apply: **nothing goes on a document until it is running and verified, and every number is measured, never estimated.**
 
-- When M3 is live, add a Sitewatch section to Master Source with the stack and what is deployed, checked against the repo and AWS.
+- When M3 is live, add a Tideline section to Master Source with the stack and what is deployed, checked against the repo and AWS.
 - Numbers worth measuring once it has run for a while, each pulled from the database or CloudWatch with a date: sites monitored, checks per day, test count, real incidents caught (each described from its incident record: what broke, when, how long, what fixed it), deploys shipped through the pipeline, the monitor's own uptime.
 - **Real incidents are the interview stories.** Write each one into `docs/incidents/` the week it happens, while the details are fresh.
 - **Defensibility:** this will be built with Claude Code, which is fine and should be said plainly if asked. UVic's co-op AI policy draws the line at misrepresentation, so every part of the stack on the résumé has to be explainable unaided: what a Dockerfile layer is, how the OIDC deploy authenticates, why the NAT gateway trap rules out Lambda here, how an incident opens and closes, how a backup is restored. Before each milestone is called done, Owen should be able to walk through it without notes.

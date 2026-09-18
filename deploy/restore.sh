@@ -1,5 +1,5 @@
 #!/bin/bash
-# Restore a Sitewatch database backup.
+# Restore a Tideline database backup.
 #
 #   restore.sh                          check the newest backup: restore it into a
 #                                       scratch database, count the rows, drop it
@@ -74,7 +74,7 @@ fi
 
 # --replace from here on.
 if [ "$yes" != 1 ]; then
-  echo "This REPLACES the live Sitewatch database with $source_name."
+  echo "This REPLACES the live Tideline database with $source_name."
   echo "Current: $(counts sitewatch)"
   read -r -p "Type 'replace' to continue: " answer
   [ "$answer" = replace ] || { echo "cancelled"; exit 1; }

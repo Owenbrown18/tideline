@@ -4,9 +4,9 @@ import httpx
 import pytest
 import respx
 
-from sitewatch.checks import form, links
-from sitewatch.checks.form import find_forms, looks_like_a_contact_form
-from sitewatch.checks.links import extract_links, same_host
+from tideline.checks import form, links
+from tideline.checks.form import find_forms, looks_like_a_contact_form
+from tideline.checks.links import extract_links, same_host
 
 SITE = "https://example.ca/"
 CONTACT = "https://example.ca/contact"
@@ -383,7 +383,7 @@ async def test_no_form_anywhere_fails(make_clients):
 
 
 def test_contact_candidates_prefer_paths_then_text_and_stay_on_the_site():
-    from sitewatch.checks.form import contact_page_candidates
+    from tideline.checks.form import contact_page_candidates
 
     html = """
       <a href="/about">About</a>

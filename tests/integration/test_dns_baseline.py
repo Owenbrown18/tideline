@@ -11,17 +11,17 @@ import pytest
 from httpx import ASGITransport
 from sqlalchemy import select
 
-from sitewatch.api.app import create_app
-from sitewatch.checks import Clients
-from sitewatch.checks.http import PageFetcher
-from sitewatch.config import Settings
-from sitewatch.db.baselines import get_baseline
-from sitewatch.db.models import Check, DnsBaseline, Incident
-from sitewatch.sites import SitesFile, seed
-from sitewatch.worker.runner import Runner
 from tests.integration.conftest import DATABASE_URL
 from tests.integration.test_runner_incidents import RecordingNotifier
 from tests.unit.test_dns_and_email_auth import BASELINE, FakeResolver, resolver_from
+from tideline.api.app import create_app
+from tideline.checks import Clients
+from tideline.checks.http import PageFetcher
+from tideline.config import Settings
+from tideline.db.baselines import get_baseline
+from tideline.db.models import Check, DnsBaseline, Incident
+from tideline.sites import SitesFile, seed
+from tideline.worker.runner import Runner
 
 TOKEN = "test-token"
 

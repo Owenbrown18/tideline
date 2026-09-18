@@ -7,14 +7,14 @@ import pytest
 from botocore.exceptions import ClientError
 from moto import mock_aws
 
-from sitewatch.config import Settings
-from sitewatch.notify import build_notifier
-from sitewatch.notify.base import LogNotifier
-from sitewatch.observability.metrics import NAMESPACE, emf_document, emit
 from tests.unit.test_notify_sites_logging import message
+from tideline.config import Settings
+from tideline.notify import build_notifier
+from tideline.notify.base import LogNotifier
+from tideline.observability.metrics import NAMESPACE, emf_document, emit
 
 REGION = "ca-central-1"
-SENDER = "sitewatch@obwebdesign.ca"
+SENDER = "Tideline <tideline@obwebdesign.ca>"
 OWEN = "owenjosephbrown@gmail.com"
 
 
@@ -26,7 +26,7 @@ def test_log_channel_by_default():
 
 
 def test_unknown_channel_is_rejected():
-    with pytest.raises(ValueError, match="unknown SITEWATCH_NOTIFY_CHANNEL"):
+    with pytest.raises(ValueError, match="unknown TIDELINE_NOTIFY_CHANNEL"):
         build_notifier(Settings(notify_channel="carrier-pigeon"))
 
 
@@ -48,7 +48,7 @@ def aws_credentials(monkeypatch):
 
 
 async def test_ses_sends_one_email_to_owen(aws_credentials):
-    from sitewatch.notify.ses import SesNotifier
+    from tideline.notify.ses import SesNotifier
 
     # The context-manager form, not the decorator: decorating an async test
     # leaves the coroutine unawaited.
@@ -65,7 +65,7 @@ async def test_ses_sends_one_email_to_owen(aws_credentials):
 
 async def test_ses_only_ever_addresses_owen(aws_credentials):
     """Even an alert about a client's site goes to Owen, never to the client."""
-    from sitewatch.notify.ses import SesNotifier
+    from tideline.notify.ses import SesNotifier
 
     with mock_aws():
         boto3.client("ses", region_name=REGION).verify_domain_identity(Domain="obwebdesign.ca")
@@ -91,7 +91,7 @@ async def test_ses_only_ever_addresses_owen(aws_credentials):
 
 
 async def test_ses_failure_raises_so_the_alert_is_retried(aws_credentials):
-    from sitewatch.notify.ses import SesNotifier
+    from tideline.notify.ses import SesNotifier
 
     with mock_aws():
         # No verified identity, so SES refuses the send.

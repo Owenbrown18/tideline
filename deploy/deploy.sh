@@ -1,5 +1,5 @@
 #!/bin/bash
-# Deploy a Sitewatch image tag on this instance.
+# Deploy a Tideline image tag on this instance.
 #
 #   deploy.sh <image-tag>     run that tag
 #   deploy.sh                 rerun whatever tag is currently live
@@ -27,6 +27,12 @@ param() {
 }
 
 log fetch_files
+# Keep the running release's compose files: a rollback restores them exactly,
+# because an older image may need an older compose file (the Tideline rename
+# changed the command and variable names).
+for f in compose.prod.yaml compose.env; do
+  [ -f "/opt/sitewatch/$f" ] && cp -p "/opt/sitewatch/$f" "/opt/sitewatch/$f.previous"
+done
 aws s3 cp "s3://$SITEWATCH_BUCKET/deploy/compose.prod.yaml" /opt/sitewatch/compose.prod.yaml --region "$AWS_REGION"
 aws s3 cp "s3://$SITEWATCH_BUCKET/deploy/Caddyfile" /opt/sitewatch/Caddyfile --region "$AWS_REGION"
 aws s3 cp "s3://$SITEWATCH_BUCKET/deploy/backup.sh" /opt/sitewatch/backup.sh --region "$AWS_REGION"
@@ -40,21 +46,25 @@ log write_env
 DB_PASSWORD=$(param /sitewatch/db_password)
 umask 077
 cat > /opt/sitewatch/.env <<ENVFILE
-SITEWATCH_DATABASE_URL=postgresql+psycopg://sitewatch:${DB_PASSWORD}@postgres:5432/sitewatch
-SITEWATCH_API_TOKEN=$(param /sitewatch/api_token)
-SITEWATCH_DASHBOARD_USER=$(param /sitewatch/dashboard_user)
-SITEWATCH_DASHBOARD_PASSWORD=$(param /sitewatch/dashboard_password)
-SITEWATCH_LOG_LEVEL=INFO
-SITEWATCH_NOTIFY_CHANNEL=ses
-SITEWATCH_ALERT_EMAIL=${SITEWATCH_ALERT_EMAIL}
-SITEWATCH_ALERT_SENDER="Tideline <tideline@${SITEWATCH_DOMAIN#status.}>"
-SITEWATCH_PUBLIC_URL=https://${SITEWATCH_DOMAIN}
-SITEWATCH_AWS_REGION=${AWS_REGION}
+TIDELINE_DATABASE_URL=postgresql+psycopg://sitewatch:${DB_PASSWORD}@postgres:5432/sitewatch
+TIDELINE_API_TOKEN=$(param /sitewatch/api_token)
+TIDELINE_DASHBOARD_USER=$(param /sitewatch/dashboard_user)
+TIDELINE_DASHBOARD_PASSWORD=$(param /sitewatch/dashboard_password)
+TIDELINE_LOG_LEVEL=INFO
+TIDELINE_NOTIFY_CHANNEL=ses
+TIDELINE_ALERT_EMAIL=${SITEWATCH_ALERT_EMAIL}
+TIDELINE_ALERT_SENDER="Tideline <tideline@${SITEWATCH_DOMAIN#status.}>"
+TIDELINE_PUBLIC_URL=https://${SITEWATCH_DOMAIN}
+TIDELINE_AWS_REGION=${AWS_REGION}
 ENVFILE
+# The same settings under their pre-rename names (SITEWATCH_*), so rolling back
+# to an image built before the rename still finds its configuration.
+legacy=$(sed -n 's/^TIDELINE_/SITEWATCH_/p' /opt/sitewatch/.env)
+printf '%s\n' "$legacy" >> /opt/sitewatch/.env
 
 cat > /opt/sitewatch/compose.env <<COMPOSEENV
-SITEWATCH_IMAGE=${SITEWATCH_ECR_REPO}:${TAG}
-SITEWATCH_DB_PASSWORD=${DB_PASSWORD}
+TIDELINE_IMAGE=${SITEWATCH_ECR_REPO}:${TAG}
+TIDELINE_DB_PASSWORD=${DB_PASSWORD}
 SITEWATCH_DOMAIN=${SITEWATCH_DOMAIN}
 SITEWATCH_ALERT_EMAIL=${SITEWATCH_ALERT_EMAIL}
 COMPOSEENV
@@ -73,7 +83,7 @@ compose pull --quiet
 log migrate
 # Postgres must be up before migrations; compose starts it and waits.
 compose up -d postgres
-compose run --rm --no-deps api sitewatch migrate
+compose run --rm --no-deps api tideline migrate
 
 log seed
 # sites.yaml is deliberately not in git or the image: it is in SSM.
@@ -82,7 +92,7 @@ param /sitewatch/sites_yaml > /opt/sitewatch/sites.yaml
 # by it. /opt/sitewatch itself stays root-owned, and .env stays 0600.
 chmod 0644 /opt/sitewatch/sites.yaml
 compose run --rm --no-deps -v /opt/sitewatch/sites.yaml:/config/sites.yaml:ro api \
-  sitewatch seed /config/sites.yaml
+  tideline seed /config/sites.yaml
 
 log restart
 compose up -d --remove-orphans
@@ -100,7 +110,7 @@ log backup_timer
 # exactly with anything else, and Persistent so a reboot does not skip a night.
 cat > /etc/systemd/system/sitewatch-backup.service <<'UNIT'
 [Unit]
-Description=Sitewatch nightly database backup to S3
+Description=Tideline nightly database backup to S3
 After=docker.service
 
 [Service]
@@ -109,7 +119,7 @@ ExecStart=/opt/sitewatch/backup.sh
 UNIT
 cat > /etc/systemd/system/sitewatch-backup.timer <<'UNIT'
 [Unit]
-Description=Run the Sitewatch backup nightly
+Description=Run the Tideline backup nightly
 
 [Timer]
 OnCalendar=*-*-* 03:20:00 UTC
@@ -143,7 +153,13 @@ if [ "$healthy" != 1 ]; then
   echo '{"event":"deploy","step":"unhealthy"}'
   if [ -n "$PREVIOUS_TAG" ] && [ "$PREVIOUS_TAG" != "$TAG" ]; then
     echo "{\"event\":\"deploy\",\"step\":\"rollback\",\"to\":\"$PREVIOUS_TAG\"}"
-    sed -i "s|^SITEWATCH_IMAGE=.*|SITEWATCH_IMAGE=${SITEWATCH_ECR_REPO}:${PREVIOUS_TAG}|" /opt/sitewatch/compose.env
+    if [ -f /opt/sitewatch/compose.env.previous ]; then
+      # The previous release's own files, which already name its image tag.
+      cp -p /opt/sitewatch/compose.prod.yaml.previous /opt/sitewatch/compose.prod.yaml
+      cp -p /opt/sitewatch/compose.env.previous /opt/sitewatch/compose.env
+    else
+      sed -i "s|^TIDELINE_IMAGE=.*|TIDELINE_IMAGE=${SITEWATCH_ECR_REPO}:${PREVIOUS_TAG}|" /opt/sitewatch/compose.env
+    fi
     compose up -d --remove-orphans
   fi
   exit 1

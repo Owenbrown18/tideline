@@ -10,7 +10,7 @@
   queue like Celery + Redis (a second moving part with nothing to distribute).
 - asyncio end to end: `httpx` for HTTP, asyncio streams for TLS, SQLAlchemy's
   async session over psycopg 3. Waiting on the network costs no threads, and
-  a semaphore caps concurrent checks (`SITEWATCH_MAX_CONCURRENT_CHECKS`).
+  a semaphore caps concurrent checks (`TIDELINE_MAX_CONCURRENT_CHECKS`).
 - psycopg 3 serves both the async app and Alembic's synchronous migrations
   from one URL.
 

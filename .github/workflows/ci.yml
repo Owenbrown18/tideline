@@ -31,9 +31,9 @@ jobs:
           --health-retries 30
     env:
       # A real Postgres, so the integration tests and the migrations are exercised.
-      SITEWATCH_TEST_DATABASE_URL: postgresql+psycopg://sitewatch:sitewatch@localhost:5432/sitewatch_test
+      TIDELINE_TEST_DATABASE_URL: postgresql+psycopg://sitewatch:sitewatch@localhost:5432/sitewatch_test
       # Without this, a missing database would skip those tests instead of failing.
-      SITEWATCH_REQUIRE_DB: "1"
+      TIDELINE_REQUIRE_DB: "1"
     steps:
       - uses: actions/checkout@v5
 
@@ -61,10 +61,10 @@ jobs:
       # it too (found by running this workflow locally with `act`, 2026-09-18).
       - name: sites.example.yaml still seeds
         run: |
-          uv run sitewatch migrate
-          uv run sitewatch seed sites.example.yaml
+          uv run tideline migrate
+          uv run tideline seed sites.example.yaml
         env:
-          SITEWATCH_DATABASE_URL: postgresql+psycopg://sitewatch:sitewatch@localhost:5432/sitewatch_test
+          TIDELINE_DATABASE_URL: postgresql+psycopg://sitewatch:sitewatch@localhost:5432/sitewatch_test
 
   image:
     runs-on: ubuntu-latest
@@ -79,7 +79,7 @@ jobs:
           context: .
           platforms: linux/arm64,linux/amd64
           push: false
-          tags: sitewatch:ci
+          tags: tideline:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -88,12 +88,12 @@ jobs:
         with:
           context: .
           load: true
-          tags: sitewatch:smoke
+          tags: tideline:smoke
           cache-from: type=gha
 
       # No network calls here: a slow third-party site must not turn CI red.
       - name: The CLI runs inside the image, as a non-root user
         run: |
-          docker run --rm sitewatch:smoke sitewatch --help
-          docker run --rm sitewatch:smoke sitewatch check --help
-          test "$(docker run --rm sitewatch:smoke id -un)" = sitewatch
+          docker run --rm tideline:smoke tideline --help
+          docker run --rm tideline:smoke tideline check --help
+          test "$(docker run --rm tideline:smoke id -un)" = tideline

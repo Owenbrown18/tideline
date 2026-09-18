@@ -1,8 +1,8 @@
 import pytest
 import respx
 
-from sitewatch.checks import content
-from sitewatch.checks.content import find_spam, normalise
+from tideline.checks import content
+from tideline.checks.content import find_spam, normalise
 
 URL = "https://example.ca/"
 

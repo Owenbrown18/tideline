@@ -10,7 +10,7 @@
 name: sitewatch
 
 x-app: &app
-  image: ${SITEWATCH_IMAGE}
+  image: ${TIDELINE_IMAGE}
   env_file: [/opt/sitewatch/.env]
   restart: always
   depends_on:
@@ -22,7 +22,7 @@ services:
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: sitewatch
-      POSTGRES_PASSWORD: ${SITEWATCH_DB_PASSWORD}
+      POSTGRES_PASSWORD: ${TIDELINE_DB_PASSWORD}
       POSTGRES_DB: sitewatch
     volumes:
       - /opt/sitewatch/pgdata:/var/lib/postgresql/data
@@ -35,7 +35,7 @@ services:
 
   api:
     <<: *app
-    command: ["sitewatch", "api"]
+    command: ["tideline", "api"]
     expose: ["8000"]
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/healthz').status == 200 else 1)\""]
@@ -46,7 +46,7 @@ services:
 
   worker:
     <<: *app
-    command: ["sitewatch", "worker"]
+    command: ["tideline", "worker"]
 
   caddy:
     image: caddy:2-alpine

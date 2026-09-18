@@ -2,10 +2,10 @@
 
 import pytest
 
-from sitewatch.checks import dns_drift, email_auth
-from sitewatch.checks.dns_drift import diff_records
-from sitewatch.checks.email_auth import count_lookups, parse_dmarc, spf_records
-from sitewatch.checks.resolver import DnsUnavailable, DomainMissing, _normalise
+from tideline.checks import dns_drift, email_auth
+from tideline.checks.dns_drift import diff_records
+from tideline.checks.email_auth import count_lookups, parse_dmarc, spf_records
+from tideline.checks.resolver import DnsUnavailable, DomainMissing, _normalise
 
 BASELINE = {
     "example.ca": {

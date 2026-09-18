@@ -1,6 +1,6 @@
 # Threat model
 
-A short threat model of Sitewatch itself: what it holds, who might want it, how
+A short threat model of Tideline itself: what it holds, who might want it, how
 they could get at it, and what stops them. Written in the STRIDE style used in
 SENG 360, kept deliberately small because the system is small.
 
@@ -10,7 +10,7 @@ SENG 360, kept deliberately small because the system is small.
 |---|---|
 | **The client site list** | Which small businesses OBdesign runs, their domains, and each one's weak spots (missing SPF/DMARC, broken forms). A ready-made target list. |
 | **Findings about clients** | "These 8 domains can be spoofed" is a spoofing shopping list. |
-| **Alert and report email** | Sitewatch can send mail from `tideline@obwebdesign.ca`. Abused, it could phish, or email a client something they should never see. |
+| **Alert and report email** | Tideline can send mail from `tideline@obwebdesign.ca`. Abused, it could phish, or email a client something they should never see. |
 | **The AWS account** | Billing, and a trusted identity that could be used to attack others. |
 | **Monitoring history** | The record that proves the sites have been healthy. Loss is embarrassing, not dangerous. |
 
@@ -58,14 +58,14 @@ SENG 360, kept deliberately small because the system is small.
 | Flooding the dashboard | It is one small box, and this is accepted: the dashboard is for Owen, and the worker (the part that matters) keeps checking even if the API is overwhelmed. Caddy and the API run in separate containers from the worker. |
 | The worker dying quietly | The heartbeat alarm, over SNS, which does not depend on the instance at all. |
 | Filling the disk | Log retention is 30 days in CloudWatch; raw results are purged after 90 days; ECR keeps 10 images; a disk alarm fires at 80%. |
-| Sitewatch being used to attack clients | Checks are polite by construction: one request per URL per interval, a pause between crawl requests, a page limit, and an honest user agent. |
+| Tideline being used to attack clients | Checks are polite by construction: one request per URL per interval, a pause between crawl requests, a page limit, and an honest user agent. |
 
 ### Elevation of privilege (getting more access than intended)
 | Threat | Mitigation |
 |---|---|
 | A container compromise becoming a host compromise | Containers run as a non-root user (uid 10001). |
-| A host compromise becoming an account compromise | The instance role can read only `/sitewatch/*` parameters, pull only its own image, write only its own bucket and log group, publish only the `Sitewatch` metric namespace, and send email **only to Owen** (an IAM `ses:Recipients` condition). It cannot touch IAM, EC2, or any other resource. |
-| Sitewatch emailing a client | Enforced three times: the code has one recipient, IAM allows only that recipient, and SES stays in its sandbox where unverified addresses cannot be reached at all. The contact-form check never submits a form, with a test asserting no POST is made. |
+| A host compromise becoming an account compromise | The instance role can read only `/sitewatch/*` parameters, pull only its own image, write only its own bucket and log group, publish only the `Tideline` metric namespace, and send email **only to Owen** (an IAM `ses:Recipients` condition). It cannot touch IAM, EC2, or any other resource. |
+| Tideline emailing a client | Enforced three times: the code has one recipient, IAM allows only that recipient, and SES stays in its sandbox where unverified addresses cannot be reached at all. The contact-form check never submits a form, with a test asserting no POST is made. |
 | Using the AWS account itself | Root has MFA and is not used day to day. Owen works through an IAM Identity Center user with 8-hour sessions and no long-lived keys. A USD 25 budget alarm catches abuse that costs money. |
 | No SSH to break into | The security group has no port 22. Shell access is SSM Session Manager, authenticated through AWS. |
 
@@ -84,7 +84,7 @@ outage. That is the pattern this model most wants to keep.
 
 ## Accepted risks
 
-- **One instance, one availability zone.** An AZ outage takes Sitewatch down,
+- **One instance, one availability zone.** An AZ outage takes Tideline down,
   and nothing tells Owen except the heartbeat alarm. Acceptable for 11 sites;
   the upgrade path is in `docs/decisions/0001-single-ec2-instance.md`.
 - **Probes come from one place.** A network problem between Montreal and a

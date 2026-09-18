@@ -1,7 +1,7 @@
 """Alembic environment: runs migrations with a plain (sync) psycopg connection.
 
 The URL comes from `sqlalchemy.url` if a caller set it (the test suite does),
-otherwise from Sitewatch settings (SITEWATCH_DATABASE_URL).
+otherwise from Tideline settings (TIDELINE_DATABASE_URL).
 """
 
 from logging.config import fileConfig
@@ -9,8 +9,8 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import create_engine, pool
 
-from sitewatch.config import get_settings
-from sitewatch.db.models import Base
+from tideline.config import get_settings
+from tideline.db.models import Base
 
 config = context.config
 if config.config_file_name is not None and config.attributes.get("configure_logger", True):

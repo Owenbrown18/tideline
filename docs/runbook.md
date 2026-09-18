@@ -1,6 +1,6 @@
 # Runbook
 
-Everything you might need to do to Sitewatch in production, with the commands.
+Everything you might need to do to Tideline in production, with the commands.
 Account 053578820490, region ca-central-1, instance `i-010dc8609621b4d18`.
 
 Sign in first:
@@ -89,8 +89,8 @@ Rather than waiting for the interval (DNS is hourly, email authentication daily)
 aws ssm start-session --target i-010dc8609621b4d18
 sudo -i && cd /opt/sitewatch
 compose() { docker compose --env-file compose.env -f compose.prod.yaml "$@"; }
-compose run --rm --no-deps api sitewatch run-once --kind dns
-compose run --rm --no-deps api sitewatch run-once --kind email_auth --site davesbakery.ca
+compose run --rm --no-deps api tideline run-once --kind dns
+compose run --rm --no-deps api tideline run-once --kind email_auth --site davesbakery.ca
 ```
 
 ## Change the site list
@@ -241,9 +241,9 @@ aws ssm start-session --target i-010dc8609621b4d18
 sudo -i && cd /opt/sitewatch
 compose() { docker compose --env-file compose.env -f compose.prod.yaml "$@"; }
 
-compose run --rm --no-deps api sitewatch report --month 2026-09            # print
-compose run --rm --no-deps api sitewatch report --month 2026-09 --email    # email Owen
-compose run --rm --no-deps api sitewatch report --month 2026-09 --site davesbakery.ca --email
+compose run --rm --no-deps api tideline report --month 2026-09            # print
+compose run --rm --no-deps api tideline report --month 2026-09 --email    # email Owen
+compose run --rm --no-deps api tideline report --month 2026-09 --site davesbakery.ca --email
 ```
 
 They are also pages: `https://status.obwebdesign.ca/reports/<site_id>/2026-09`
@@ -252,7 +252,7 @@ They are also pages: `https://status.obwebdesign.ca/reports/<site_id>/2026-09`
 Rollups run automatically at 00:20 UTC. To rebuild a day by hand:
 
 ```bash
-compose run --rm --no-deps api sitewatch rollup --day 2026-09-17
+compose run --rm --no-deps api tideline rollup --day 2026-09-17
 ```
 
 Raw `check_results` older than 90 days are deleted by the same job. The rollups

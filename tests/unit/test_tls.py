@@ -9,9 +9,9 @@ from datetime import UTC, datetime, timedelta
 import pytest
 import trustme
 
-from sitewatch.checks import tls
-from sitewatch.checks.tls import evaluate_expiry
 from tests.conftest import FIXED_NOW
+from tideline.checks import tls
+from tideline.checks.tls import evaluate_expiry
 
 
 @pytest.fixture(scope="module")

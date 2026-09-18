@@ -80,7 +80,7 @@ drive the alarms; per-site detail comes from the logs, which are already there.
 
 **Two alert paths.** Incidents go out over SES from the app. Alarms (dead
 worker, full disk, failed backup) go over CloudWatch to SNS, which does not
-depend on the instance or on Sitewatch working. If the box dies, the alarm
+depend on the instance or on Tideline working. If the box dies, the alarm
 still arrives.
 
 **The heartbeat alarm treats missing data as breaching.** This is the whole

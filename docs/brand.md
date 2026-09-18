@@ -1,14 +1,14 @@
 # Tideline brand
 
-Tideline is the product name for Sitewatch (the working name, still used in the
-code, the repo and AWS until the rename). It is endorsed "by OBdesign" and has
-its own blue identity so it reads as a tool, not as the studio.
+Tideline is OBdesign's website monitoring service. It is endorsed "by OBdesign"
+and has its own blue identity so it reads as a tool, not as the studio. Its
+working name was Sitewatch (see "The rename" below).
 
 The full proposal, with every board, is the brand canvas:
 https://claude.ai/artifact/V8A2dKs2WJL8Su5XogUFNJ
 
-The code version of this page is `src/sitewatch/brand.py` (words, status mapping,
-favicon) and `src/sitewatch/api/static/tideline.css` (colours, type, layout).
+The code version of this page is `src/tideline/brand.py` (words, status mapping,
+favicon) and `src/tideline/api/static/tideline.css` (colours, type, layout).
 
 ## The idea
 
@@ -100,3 +100,22 @@ Standing gaps like a missing DMARC record show in "What was watched" instead.
   and less important table columns hide below 860px and 560px.
 - Motion only where it carries meaning (the status period breathes), and none
   when the reader asks for reduced motion.
+
+## The rename
+
+Sitewatch was the working name until 2026-09-17, when it turned out to collide
+with getsitewatch.com, a monitoring product for agencies. Everything a person
+sees, and everything in the code, now says Tideline: the dashboard, alert
+emails, reports, the Python package (`tideline`), the CLI (`tideline worker`),
+settings (`TIDELINE_*`), log names, the user agent sent to client sites, and
+the docs.
+
+Some names still say `sitewatch`, on purpose, because they identify things that
+hold data or secrets and cannot be renamed in place:
+
+| Name | Why it stays for now |
+|---|---|
+| `/opt/sitewatch` on the server, and `env.sh` (`SITEWATCH_BUCKET` and friends) | Written when the instance was created. Changes only with a rebuild. |
+| The Postgres database and user `sitewatch` | Renaming means taking the database offline; it gains nothing. |
+| The compose project `sitewatch` in production | Containers named `sitewatch-*`; changing it needs a planned restart. |
+| AWS resource names (bucket, ECR repo, SSM paths, alarms, SNS topic, IAM, the `Sitewatch` metric namespace) | Most AWS names are fixed at creation: renaming means replacing the resource. Tracked separately, see the runbook. |

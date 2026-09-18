@@ -7,10 +7,10 @@ import httpx
 import pytest
 from httpx import ASGITransport
 
-from sitewatch.api.app import create_app
-from sitewatch.config import Settings
-from sitewatch.db.models import Check, CheckResult, Incident, Site
 from tests.integration.conftest import DATABASE_URL
+from tideline.api.app import create_app
+from tideline.config import Settings
+from tideline.db.models import Check, CheckResult, Incident, Site
 
 TOKEN = "test-token"
 DASH = ("owen", "test-password")
@@ -31,7 +31,7 @@ async def client(settings: Settings, sessionmaker) -> AsyncIterator[httpx.AsyncC
     app = create_app(settings)
     async with (
         httpx.AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://sitewatch.test"
+            transport=ASGITransport(app=app), base_url="http://tideline.test"
         ) as client,
         app.router.lifespan_context(app),
     ):
@@ -144,9 +144,9 @@ async def test_dashboard_requires_basic_auth(client):
 
 
 def test_api_refuses_to_start_without_credentials():
-    with pytest.raises(RuntimeError, match="SITEWATCH_API_TOKEN"):
+    with pytest.raises(RuntimeError, match="TIDELINE_API_TOKEN"):
         create_app(Settings(api_token="", dashboard_password="x"))
-    with pytest.raises(RuntimeError, match="SITEWATCH_DASHBOARD_PASSWORD"):
+    with pytest.raises(RuntimeError, match="TIDELINE_DASHBOARD_PASSWORD"):
         create_app(Settings(api_token="x", dashboard_password=""))
 
 

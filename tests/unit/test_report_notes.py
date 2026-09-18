@@ -2,8 +2,8 @@
 
 from datetime import date
 
-from sitewatch.api.queries import CheckStatus
-from sitewatch.reports.monthly import _coming_up, _evidence, client_words
+from tideline.api.queries import CheckStatus
+from tideline.reports.monthly import _coming_up, _evidence, client_words
 
 TODAY = date(2026, 9, 17)
 

@@ -1,4 +1,4 @@
-# Running Sitewatch locally
+# Running Tideline locally
 
 ## One-time setup
 Needs Docker (OrbStack or Docker Desktop) and `uv`. Python 3.12 is fetched by uv.
@@ -12,7 +12,7 @@ cp sites.example.yaml sites.yaml      # then list the real sites (git-ignored)
 ```bash
 docker compose up --build
 ```
-Starts Postgres 16, runs `sitewatch migrate` and `sitewatch seed` once, then the
+Starts Postgres 16, runs `tideline migrate` and `tideline seed` once, then the
 worker. Every check result is one JSON log line (`"event": "check_result"`).
 
 ## The incident demo (the M1 "Done when" check)
@@ -34,16 +34,16 @@ Reset everything, including the database volume: `docker compose down -v`.
 ## Tests, lint, types
 ```bash
 docker compose up -d postgres
-SITEWATCH_TEST_DATABASE_URL=postgresql+psycopg://sitewatch:sitewatch@localhost:5432/sitewatch_test uv run pytest
+TIDELINE_TEST_DATABASE_URL=postgresql+psycopg://sitewatch:sitewatch@localhost:5432/sitewatch_test uv run pytest
 uv run ruff check . && uv run ruff format --check . && uv run mypy
 ```
-Without `SITEWATCH_TEST_DATABASE_URL` the integration tests are skipped and
+Without `TIDELINE_TEST_DATABASE_URL` the integration tests are skipped and
 only the unit tests run. The test database is emptied by the tests: never
 point it at real data.
 
 ## Useful commands
 ```bash
-uv run sitewatch check davesbakery.ca --expected "Daves' Bakery"   # run checks 1-4 once, no DB
-uv run sitewatch seed sites.yaml                                   # re-load the site list
+uv run tideline check davesbakery.ca --expected "Daves' Bakery"   # run checks 1-4 once, no DB
+uv run tideline seed sites.yaml                                   # re-load the site list
 uv run alembic revision --autogenerate -m "describe the change"    # after editing db/models.py
 ```

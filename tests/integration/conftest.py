@@ -1,12 +1,12 @@
 """Integration tests run against a real Postgres.
 
-Point SITEWATCH_TEST_DATABASE_URL at an empty, throwaway database, e.g. with
+Point TIDELINE_TEST_DATABASE_URL at an empty, throwaway database, e.g. with
 `docker compose up -d postgres`:
 
-    SITEWATCH_TEST_DATABASE_URL=postgresql+psycopg://sitewatch:sitewatch@localhost:5432/sitewatch_test
+    TIDELINE_TEST_DATABASE_URL=postgresql+psycopg://sitewatch:sitewatch@localhost:5432/sitewatch_test
 
 Every table in it is emptied between tests. Without the variable these tests
-are skipped locally; CI sets SITEWATCH_REQUIRE_DB=1 so a missing database fails
+are skipped locally; CI sets TIDELINE_REQUIRE_DB=1 so a missing database fails
 the build instead of silently skipping.
 """
 
@@ -21,10 +21,10 @@ from alembic.config import Config
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
-from sitewatch.db.session import make_engine, make_sessionmaker
+from tideline.db.session import make_engine, make_sessionmaker
 
 REPO = Path(__file__).resolve().parents[2]
-DATABASE_URL = os.environ.get("SITEWATCH_TEST_DATABASE_URL")
+DATABASE_URL = os.environ.get("TIDELINE_TEST_DATABASE_URL")
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
@@ -32,11 +32,11 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
         if "integration" in item.path.parts:
             item.add_marker(pytest.mark.integration)
             if not DATABASE_URL:
-                if os.environ.get("SITEWATCH_REQUIRE_DB"):
+                if os.environ.get("TIDELINE_REQUIRE_DB"):
                     raise pytest.UsageError(
-                        "SITEWATCH_REQUIRE_DB is set but SITEWATCH_TEST_DATABASE_URL is not"
+                        "TIDELINE_REQUIRE_DB is set but TIDELINE_TEST_DATABASE_URL is not"
                     )
-                item.add_marker(pytest.mark.skip(reason="SITEWATCH_TEST_DATABASE_URL not set"))
+                item.add_marker(pytest.mark.skip(reason="TIDELINE_TEST_DATABASE_URL not set"))
 
 
 def alembic_config() -> Config:

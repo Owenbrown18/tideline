@@ -9,19 +9,19 @@
 # The local demo that proves incidents work (see docs/local-dev.md):
 #   docker compose -f compose.yaml -f compose.demo.yaml up --build
 
-name: sitewatch
+name: tideline
 
 x-app: &app
   build: .
-  image: sitewatch:dev
+  image: tideline:dev
   environment:
-    SITEWATCH_DATABASE_URL: postgresql+psycopg://sitewatch:sitewatch@postgres:5432/sitewatch
-    SITEWATCH_LOG_LEVEL: ${SITEWATCH_LOG_LEVEL:-INFO}
-    SITEWATCH_PUBLIC_URL: ${SITEWATCH_PUBLIC_URL:-http://localhost:8000}
+    TIDELINE_DATABASE_URL: postgresql+psycopg://sitewatch:sitewatch@postgres:5432/sitewatch
+    TIDELINE_LOG_LEVEL: ${TIDELINE_LOG_LEVEL:-INFO}
+    TIDELINE_PUBLIC_URL: ${TIDELINE_PUBLIC_URL:-http://localhost:8000}
     # Local development values only. Production reads these from SSM Parameter Store.
-    SITEWATCH_API_TOKEN: ${SITEWATCH_API_TOKEN:-dev-token}
-    SITEWATCH_DASHBOARD_USER: ${SITEWATCH_DASHBOARD_USER:-owen}
-    SITEWATCH_DASHBOARD_PASSWORD: ${SITEWATCH_DASHBOARD_PASSWORD:-dev-password}
+    TIDELINE_API_TOKEN: ${TIDELINE_API_TOKEN:-dev-token}
+    TIDELINE_DASHBOARD_USER: ${TIDELINE_DASHBOARD_USER:-owen}
+    TIDELINE_DASHBOARD_PASSWORD: ${TIDELINE_DASHBOARD_PASSWORD:-dev-password}
 
 services:
   postgres:
@@ -44,7 +44,7 @@ services:
   # Runs once per `up`: apply migrations, then load sites.yaml. Both are idempotent.
   migrate:
     <<: *app
-    command: ["sh", "-c", "sitewatch migrate && sitewatch seed /config/sites.yaml"]
+    command: ["sh", "-c", "tideline migrate && tideline seed /config/sites.yaml"]
     volumes:
       - ./${SITES_FILE:-sites.yaml}:/config/sites.yaml:ro
     depends_on:
@@ -53,7 +53,7 @@ services:
 
   worker:
     <<: *app
-    command: ["sitewatch", "worker"]
+    command: ["tideline", "worker"]
     restart: unless-stopped
     depends_on:
       migrate:
@@ -61,7 +61,7 @@ services:
 
   api:
     <<: *app
-    command: ["sitewatch", "api"]
+    command: ["tideline", "api"]
     restart: unless-stopped
     ports:
       - "127.0.0.1:8000:8000"   # http://localhost:8000 (Caddy fronts this in production)

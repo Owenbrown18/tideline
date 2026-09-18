@@ -1,5 +1,5 @@
 # Copy to sites.yaml (git-ignored) and list the real sites there.
-# Load it with:  uv run sitewatch seed sites.yaml   (or `docker compose up`, which seeds on start)
+# Load it with:  uv run tideline seed sites.yaml   (or `docker compose up`, which seeds on start)
 #
 # Seeding is idempotent: run it again after any edit. Sites removed from the file
 # are marked inactive (history kept), not deleted.

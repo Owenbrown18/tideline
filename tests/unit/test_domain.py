@@ -4,9 +4,9 @@ import httpx
 import pytest
 import respx
 
-from sitewatch.checks import domain
-from sitewatch.checks.domain import evaluate, parse_dt, parse_rdap
 from tests.conftest import FIXED_NOW
+from tideline.checks import domain
+from tideline.checks.domain import evaluate, parse_dt, parse_rdap
 
 RDAP = "https://rdap.test/domain/"
 

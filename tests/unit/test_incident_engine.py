@@ -4,8 +4,8 @@ from datetime import timedelta
 
 import pytest
 
-from sitewatch.incidents.engine import Action, OpenIncident, Policy, decide, policy_for
 from tests.conftest import FIXED_NOW as NOW
+from tideline.incidents.engine import Action, OpenIncident, Policy, decide, policy_for
 
 UPTIME = policy_for("uptime")
 TLS = policy_for("tls")

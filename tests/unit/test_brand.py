@@ -1,10 +1,10 @@
-"""Tideline's wording and favicon (src/sitewatch/brand.py)."""
+"""Tideline's wording and favicon (src/tideline/brand.py)."""
 
 from datetime import UTC, date, datetime
 
 import pytest
 
-from sitewatch import brand
+from tideline import brand
 
 
 @pytest.mark.parametrize(

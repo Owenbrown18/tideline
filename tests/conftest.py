@@ -7,8 +7,8 @@ from datetime import UTC, datetime
 import httpx
 import pytest
 
-from sitewatch.checks import Clients
-from sitewatch.checks.http import PageFetcher
+from tideline.checks import Clients
+from tideline.checks.http import PageFetcher
 
 FIXED_NOW = datetime(2026, 9, 17, 12, 0, tzinfo=UTC)
 

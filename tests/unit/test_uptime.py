@@ -3,8 +3,8 @@ import asyncio
 import httpx
 import respx
 
-from sitewatch.checks import uptime
-from sitewatch.checks.http import PageFetcher, fetch_page
+from tideline.checks import uptime
+from tideline.checks.http import PageFetcher, fetch_page
 
 URL = "https://example.ca/"
 
@@ -58,7 +58,7 @@ async def test_connection_error_is_fail(make_clients):
 
 
 async def test_timeout_over_ten_seconds_is_an_error(monkeypatch, http):
-    from sitewatch.checks import http as http_module
+    from tideline.checks import http as http_module
 
     monkeypatch.setattr(http_module, "REQUEST_TIMEOUT_SECONDS", 0.05)
 
@@ -88,7 +88,7 @@ async def test_page_fetcher_shares_one_request_between_checks(http):
 
 @respx.mock
 async def test_body_is_capped(monkeypatch, http):
-    from sitewatch.checks import http as http_module
+    from tideline.checks import http as http_module
 
     monkeypatch.setattr(http_module, "MAX_BODY_BYTES", 10)
     respx.get(URL).respond(200, content=b"x" * 1000)

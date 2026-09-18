@@ -8,12 +8,12 @@ import pytest
 from httpx import ASGITransport
 from sqlalchemy import func, select
 
-from sitewatch.api.app import create_app
-from sitewatch.config import Settings
-from sitewatch.db.models import Check, CheckResult, DailyRollup, Incident, Site
-from sitewatch.reports.monthly import build_report, render_html, render_text
-from sitewatch.reports.rollups import daily_maintenance, purge_old_results, rollup_day
 from tests.integration.conftest import DATABASE_URL
+from tideline.api.app import create_app
+from tideline.config import Settings
+from tideline.db.models import Check, CheckResult, DailyRollup, Incident, Site
+from tideline.reports.monthly import build_report, render_html, render_text
+from tideline.reports.rollups import daily_maintenance, purge_old_results, rollup_day
 
 DASH = ("owen", "test-password")
 DAY = date(2026, 9, 10)
@@ -227,14 +227,14 @@ async def test_report_page_needs_auth_and_a_real_site(client, site_with_a_day, s
     ],
 )
 def test_previous_month(today, expected):
-    from sitewatch.reports.monthly import previous_month
+    from tideline.reports.monthly import previous_month
 
     assert previous_month(today) == expected
 
 
 async def test_send_month_sends_one_report_per_active_site(sessionmaker, site_with_a_day):
-    from sitewatch.reports.monthly import send_month
     from tests.integration.test_runner_incidents import RecordingNotifier
+    from tideline.reports.monthly import send_month
 
     async with sessionmaker() as session, session.begin():
         await rollup_day(session, DAY)
@@ -249,8 +249,8 @@ async def test_send_month_sends_one_report_per_active_site(sessionmaker, site_wi
 
 
 async def test_one_failed_report_does_not_stop_the_rest(sessionmaker, site_with_a_day):
-    from sitewatch.reports.monthly import send_month
     from tests.integration.test_runner_incidents import RecordingNotifier
+    from tideline.reports.monthly import send_month
 
     async with sessionmaker() as session, session.begin():
         session.add(Site(name="Second", domain="second.ca", urls=["https://second.ca/"]))
@@ -263,7 +263,7 @@ async def test_one_failed_report_does_not_stop_the_rest(sessionmaker, site_with_
 
 
 async def test_worker_schedules_the_daily_and_monthly_jobs(sessionmaker):
-    from sitewatch.worker.scheduler import Worker
+    from tideline.worker.scheduler import Worker
 
     worker = Worker(Settings(database_url=DATABASE_URL or ""))
     worker.scheduler.start(paused=True)

@@ -1,4 +1,4 @@
-# One image, two processes: `sitewatch worker` (default) or the API (M2).
+# One image, two processes: `tideline worker` (default) or the API (M2).
 # Multi-stage: the build stage has uv and compiles the virtualenv; the final
 # stage copies only that virtualenv, so no build tools ship to production.
 # Builds natively for arm64 (Graviton, Apple Silicon) and amd64.
@@ -24,15 +24,15 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 # ---- runtime ----------------------------------------------------------------
 FROM python:3.12-slim-bookworm AS runtime
-RUN groupadd --system --gid 10001 sitewatch \
- && useradd --system --uid 10001 --gid sitewatch --home-dir /app --shell /usr/sbin/nologin sitewatch
+RUN groupadd --system --gid 10001 tideline \
+ && useradd --system --uid 10001 --gid tideline --home-dir /app --shell /usr/sbin/nologin tideline
 WORKDIR /app
 COPY --from=build /app/.venv /app/.venv
 COPY alembic.ini ./
 COPY alembic ./alembic
 ENV PATH=/app/.venv/bin:$PATH \
     PYTHONUNBUFFERED=1 \
-    SITEWATCH_ALEMBIC_INI=/app/alembic.ini
+    TIDELINE_ALEMBIC_INI=/app/alembic.ini
 # Never run as root inside the container.
-USER sitewatch
-CMD ["sitewatch", "worker"]
+USER tideline
+CMD ["tideline", "worker"]

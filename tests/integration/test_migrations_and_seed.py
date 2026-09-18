@@ -3,9 +3,9 @@ import asyncio
 from alembic import command
 from sqlalchemy import func, select
 
-from sitewatch.db.models import Check, Site
-from sitewatch.sites import SitesFile, seed
 from tests.integration.conftest import alembic_config
+from tideline.db.models import Check, Site
+from tideline.sites import SitesFile, seed
 
 
 async def test_models_and_migrations_agree(engine):
@@ -76,7 +76,7 @@ async def test_disabling_a_check_closes_its_open_incident(sessionmaker):
     """A check that is off can never produce the ok result that would close it."""
     from datetime import UTC, datetime
 
-    from sitewatch.db.models import Incident
+    from tideline.db.models import Incident
 
     async with sessionmaker() as session, session.begin():
         await seed(session, sites_file(BAKERY))

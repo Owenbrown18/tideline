@@ -6,8 +6,9 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from sitewatch.checks import DEFAULT_INTERVALS
-from sitewatch.notify.base import (
+from tests.conftest import FIXED_NOW
+from tideline.checks import DEFAULT_INTERVALS
+from tideline.notify.base import (
     AlertMessage,
     LogNotifier,
     describe,
@@ -16,9 +17,8 @@ from sitewatch.notify.base import (
     render_html,
     render_subject,
 )
-from sitewatch.observability.logging import JsonFormatter, log_event
-from sitewatch.sites import SiteEntry, SitesFile, check_specs, load_sites_file
-from tests.conftest import FIXED_NOW
+from tideline.observability.logging import JsonFormatter, log_event
+from tideline.sites import SiteEntry, SitesFile, check_specs, load_sites_file
 
 REPO = Path(__file__).resolve().parents[2]
 
@@ -127,7 +127,7 @@ def test_alert_copy_has_no_em_dashes():
 
 
 async def test_log_notifier_writes_a_warning(caplog):
-    caplog.set_level(logging.WARNING, logger="sitewatch.alerts")
+    caplog.set_level(logging.WARNING, logger="tideline.alerts")
     await LogNotifier().send(message())
     [record] = caplog.records
     assert record.getMessage() == "alert"

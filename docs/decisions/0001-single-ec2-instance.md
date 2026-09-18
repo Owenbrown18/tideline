@@ -2,7 +2,7 @@
 
 **Status:** accepted, 2026-09-17
 
-**Context.** Sitewatch's job is making outbound requests to 11 sites. It needs
+**Context.** Tideline's job is making outbound requests to 11 sites. It needs
 a database and a long-running scheduler, on a budget of about USD 20/month.
 
 **Options.**

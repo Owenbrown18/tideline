@@ -13,14 +13,14 @@ import pytest
 import respx
 from sqlalchemy import select
 
-from sitewatch.checks import REGISTRY, Clients
-from sitewatch.checks.http import PageFetcher
-from sitewatch.db.models import Alert, Check, CheckResult, Incident
-from sitewatch.notify.base import AlertMessage
-from sitewatch.sites import SitesFile, seed
-from sitewatch.worker.runner import Runner
-from sitewatch.worker.scheduler import JOB_PREFIX, Worker, first_run_offset
 from tests.conftest import FakeClock
+from tideline.checks import REGISTRY, Clients
+from tideline.checks.http import PageFetcher
+from tideline.db.models import Alert, Check, CheckResult, Incident
+from tideline.notify.base import AlertMessage
+from tideline.sites import SitesFile, seed
+from tideline.worker.runner import Runner
+from tideline.worker.scheduler import JOB_PREFIX, Worker, first_run_offset
 
 
 class RecordingNotifier:
@@ -233,8 +233,8 @@ async def test_crashing_check_records_nothing_and_counts_an_error(
 
 
 async def test_worker_schedules_enabled_checks_and_follows_changes(sessionmaker, engine, fake_site):
-    from sitewatch.config import Settings
     from tests.integration.conftest import DATABASE_URL
+    from tideline.config import Settings
 
     ids = await seed_fake(sessionmaker, fake_site.url)
     worker = Worker(Settings(database_url=DATABASE_URL))
