@@ -208,3 +208,72 @@ async def test_report_page_needs_auth_and_a_real_site(client, site_with_a_day, s
     assert page.status_code == 200
     assert "September 2026" in page.text
     assert "91.67%" in page.text
+
+
+# --- sending a whole month -------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("today", "expected"),
+    [
+        (date(2026, 10, 1), (2026, 9)),
+        (date(2026, 10, 15), (2026, 9)),
+        (date(2027, 1, 1), (2026, 12)),  # across a year boundary
+        (date(2026, 3, 1), (2026, 2)),
+    ],
+)
+def test_previous_month(today, expected):
+    from sitewatch.reports.monthly import previous_month
+
+    assert previous_month(today) == expected
+
+
+async def test_send_month_sends_one_report_per_active_site(sessionmaker, site_with_a_day):
+    from sitewatch.reports.monthly import send_month
+    from tests.integration.test_runner_incidents import RecordingNotifier
+
+    async with sessionmaker() as session, session.begin():
+        await rollup_day(session, DAY)
+        session.add(
+            Site(name="Retired", domain="retired.ca", urls=["https://retired.ca/"], active=False)
+        )
+
+    notifier = RecordingNotifier()
+    sent = await send_month(sessionmaker, notifier, 2026, 9)
+    assert sent == 1  # the inactive site gets no report
+    assert notifier.reports == ["[Sitewatch] September 2026 report: Daves' Bakery"]
+
+
+async def test_one_failed_report_does_not_stop_the_rest(sessionmaker, site_with_a_day):
+    from sitewatch.reports.monthly import send_month
+    from tests.integration.test_runner_incidents import RecordingNotifier
+
+    async with sessionmaker() as session, session.begin():
+        session.add(Site(name="Second", domain="second.ca", urls=["https://second.ca/"]))
+
+    notifier = RecordingNotifier()
+    notifier.fail_next = 1
+    sent = await send_month(sessionmaker, notifier, 2026, 9)
+    assert sent == 1
+    assert len(notifier.reports) == 1
+
+
+async def test_worker_schedules_the_daily_and_monthly_jobs(sessionmaker):
+    from sitewatch.worker.scheduler import Worker
+
+    worker = Worker(Settings(database_url=DATABASE_URL or ""))
+    worker.scheduler.start(paused=True)
+    try:
+        # run() adds these; add them the same way without blocking on run().
+        from apscheduler.triggers.cron import CronTrigger
+
+        worker.scheduler.add_job(
+            worker.monthly_reports, CronTrigger(day=1, hour=14, timezone=UTC), id="monthly_reports"
+        )
+        job = worker.scheduler.get_job("monthly_reports")
+        first = job.trigger.get_next_fire_time(None, datetime(2026, 9, 18, tzinfo=UTC))
+        assert first == datetime(2026, 10, 1, 14, 0, tzinfo=UTC)
+    finally:
+        worker.scheduler.shutdown(wait=False)
+        await worker.http.aclose()
+        await worker.engine.dispose()

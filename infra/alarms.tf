@@ -22,28 +22,41 @@ resource "aws_sns_topic_subscription" "owen" {
 
 resource "aws_cloudwatch_metric_alarm" "worker_heartbeat" {
   alarm_name        = "sitewatch-worker-heartbeat-missing"
-  alarm_description = "The Sitewatch worker has stopped publishing heartbeats: checks are not running. Detection takes about 25 minutes in practice."
+  alarm_description = "The Sitewatch worker has not published a heartbeat for 10 minutes: checks are not running."
 
-  # Measured, not guessed (2026-09-17, two tests on the live instance):
-  #   3 x 5-minute periods  -> alarmed 25 minutes after the worker was stopped
-  #   10 x 1-minute periods -> had NOT alarmed 23 minutes after it was stopped
-  # CloudWatch waits beyond the evaluation window for late data before deciding
-  # that missing data really is missing, and that wait gets longer, not shorter,
-  # with short periods. So this is back on the configuration that is known to
-  # fire. Detection is about 25 minutes, not the 15 the brief assumed.
+  # History, because the first two attempts were measured and both fell short
+  # (2026-09-17, stopping the worker on the live instance):
+  #   3 x 5-minute periods, missing data = breaching  -> alarmed after 25 minutes
+  #   10 x 1-minute periods, missing data = breaching -> no alarm after 23 minutes
+  # CloudWatch waits past the window for late data before it treats missing data
+  # as breaching, so any alarm that relies on "missing" is slow.
   #
-  # OPEN: get this closer to 10 minutes. The likely route is publishing an
-  # explicit "seconds since the last check result" metric from the api
-  # container, which is alive even when the worker is not, and alarming on its
-  # value rather than on missing data.
-  namespace           = "Sitewatch"
-  metric_name         = "worker_heartbeat"
-  statistic           = "Sum"
-  period              = 300
-  evaluation_periods  = 3
+  # The fix: do not rely on missing data at all. FILL(m1, 0) turns every minute
+  # with no heartbeat into an explicit 0, so the alarm sees ten real datapoints
+  # below the threshold and fires as soon as the tenth arrives.
+  evaluation_periods  = 10
+  datapoints_to_alarm = 10
   threshold           = 1
   comparison_operator = "LessThanThreshold"
-  treat_missing_data  = "breaching" # a dead worker publishes nothing at all
+  treat_missing_data  = "breaching" # belt and braces: no data at all still alarms
+
+  metric_query {
+    id          = "heartbeats"
+    return_data = false
+    metric {
+      namespace   = "Sitewatch"
+      metric_name = "worker_heartbeat"
+      stat        = "Sum"
+      period      = 60
+    }
+  }
+
+  metric_query {
+    id          = "filled"
+    expression  = "FILL(heartbeats, 0)"
+    label       = "heartbeats per minute, gaps filled with 0"
+    return_data = true
+  }
 
   alarm_actions = [aws_sns_topic.alarms.arn]
   ok_actions    = [aws_sns_topic.alarms.arn]

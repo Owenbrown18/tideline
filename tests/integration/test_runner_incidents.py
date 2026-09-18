@@ -28,7 +28,15 @@ class RecordingNotifier:
 
     def __init__(self) -> None:
         self.sent: list[AlertMessage] = []
+        self.reports: list[str] = []
         self.fail_next = 0
+
+    async def send_report(self, subject: str, text: str, html: str) -> str:
+        if self.fail_next:
+            self.fail_next -= 1
+            raise RuntimeError("email provider down")
+        self.reports.append(subject)
+        return "test"
 
     async def send(self, msg: AlertMessage) -> None:
         if self.fail_next:

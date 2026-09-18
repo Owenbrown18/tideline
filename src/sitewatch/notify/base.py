@@ -78,9 +78,16 @@ class Notifier(Protocol):
     async def send(self, msg: AlertMessage) -> None:
         """Deliver the alert or raise. The caller records only alerts that were sent."""
 
+    async def send_report(self, subject: str, text: str, html: str) -> str:
+        """Deliver a monthly report to Owen. Returns an id for the log."""
+
 
 class LogNotifier:
     channel = "log"
+
+    async def send_report(self, subject: str, text: str, html: str) -> str:
+        log_event(log, "report", logging.INFO, subject=subject, text=text)
+        return "logged"
 
     async def send(self, msg: AlertMessage) -> None:
         log_event(

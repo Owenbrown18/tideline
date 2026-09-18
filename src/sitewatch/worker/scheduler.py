@@ -24,6 +24,7 @@ from sitewatch.db.session import make_engine, make_sessionmaker
 from sitewatch.notify import Notifier, build_notifier
 from sitewatch.observability.logging import log_event
 from sitewatch.observability.metrics import emit as emit_metrics
+from sitewatch.reports.monthly import previous_month, send_month
 from sitewatch.reports.rollups import daily_maintenance
 from sitewatch.worker.runner import Runner
 
@@ -146,6 +147,11 @@ class Worker:
             summary = await daily_maintenance(session)
         log_event(log, "daily_maintenance", **summary)
 
+    async def monthly_reports(self) -> None:
+        """Email last month's report for every site to Owen."""
+        year, month = previous_month(datetime.now(UTC).date())
+        await send_month(self.sessionmaker, self.runner.notifier, year, month)
+
     def stop(self) -> None:
         self._stop.set()
 
@@ -173,6 +179,16 @@ class Worker:
             max_instances=1,
             coalesce=True,
             misfire_grace_time=3600,
+        )
+        # 14:00 UTC on the 1st is 07:00 in Victoria, and well after 00:20, when the
+        # previous month's last day is rolled up.
+        self.scheduler.add_job(
+            self.monthly_reports,
+            CronTrigger(day=1, hour=14, minute=0, timezone=UTC),
+            id="monthly_reports",
+            max_instances=1,
+            coalesce=True,
+            misfire_grace_time=6 * 3600,
         )
         self.scheduler.add_job(
             self.heartbeat,

@@ -15,11 +15,12 @@ from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from sitewatch.api import queries
 from sitewatch.db.models import DailyRollup, Site
-from sitewatch.notify.base import format_duration
+from sitewatch.notify.base import Notifier, format_duration
+from sitewatch.observability.logging import log_event
 from sitewatch.reports.rollups import month_rollups
 
 log = logging.getLogger("sitewatch.reports")
@@ -154,3 +155,35 @@ def render_text(report: MonthlyReport) -> str:
 
 async def sites_for_reports(session: AsyncSession) -> list[int]:
     return list(await session.scalars(select(Site.id).where(Site.active).order_by(Site.name)))
+
+
+def previous_month(today: date) -> tuple[int, int]:
+    """(year, month) of the month before `today`'s."""
+    first = today.replace(day=1)
+    last_of_previous = first - timedelta(days=1)
+    return last_of_previous.year, last_of_previous.month
+
+
+async def send_month(
+    sessionmaker: async_sessionmaker[AsyncSession],
+    notifier: Notifier,
+    year: int,
+    month: int,
+) -> int:
+    """Build and send every active site's report for one month. Returns how many went.
+
+    One site failing to send does not stop the others: each is logged, and the
+    rest carry on.
+    """
+    sent = 0
+    async with sessionmaker() as session:
+        for site_id in await sites_for_reports(session):
+            report = await build_report(session, site_id, year, month)
+            try:
+                await notifier.send_report(report.subject, render_text(report), render_html(report))
+            except Exception:
+                log.exception("report_send_failed", extra={"site": report.domain})
+                continue
+            sent += 1
+    log_event(log, "monthly_reports_sent", month=f"{year}-{month:02d}", sent=sent)
+    return sent
