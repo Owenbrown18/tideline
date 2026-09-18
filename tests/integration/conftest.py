@@ -1,17 +1,12 @@
-"""Integration tests run against a real Postgres.
-
-Point TIDELINE_TEST_DATABASE_URL at an empty, throwaway database, e.g. with
-`docker compose up -d postgres`:
-
-    TIDELINE_TEST_DATABASE_URL=postgresql+psycopg://sitewatch:sitewatch@localhost:5432/sitewatch_test
-
-Every table in it is emptied between tests. Without the variable these tests
-are skipped locally; CI sets TIDELINE_REQUIRE_DB=1 so a missing database fails
-the build instead of silently skipping.
+"""Integration tests run against a real SQLite database file, the same engine
+production uses. Nothing to install or start: each test session builds a fresh
+file in a temporary directory through the real migrations, and every table is
+emptied between tests.
 """
 
 import asyncio
 import os
+import tempfile
 from collections.abc import AsyncIterator
 from pathlib import Path
 
@@ -21,34 +16,29 @@ from alembic.config import Config
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
+from tideline.db.models import Base
 from tideline.db.session import make_engine, make_sessionmaker
 
 REPO = Path(__file__).resolve().parents[2]
-DATABASE_URL = os.environ.get("TIDELINE_TEST_DATABASE_URL")
+_DIR = tempfile.mkdtemp(prefix="tideline-tests-")
+DATABASE_URL = os.environ.get("TIDELINE_TEST_DATABASE_URL", f"sqlite+aiosqlite:///{_DIR}/test.db")
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
     for item in items:
         if "integration" in item.path.parts:
             item.add_marker(pytest.mark.integration)
-            if not DATABASE_URL:
-                if os.environ.get("TIDELINE_REQUIRE_DB"):
-                    raise pytest.UsageError(
-                        "TIDELINE_REQUIRE_DB is set but TIDELINE_TEST_DATABASE_URL is not"
-                    )
-                item.add_marker(pytest.mark.skip(reason="TIDELINE_TEST_DATABASE_URL not set"))
 
 
 def alembic_config() -> Config:
     config = Config(str(REPO / "alembic.ini"))
-    config.set_main_option("sqlalchemy.url", DATABASE_URL or "")
+    config.set_main_option("sqlalchemy.url", DATABASE_URL)
     config.attributes["configure_logger"] = False
     return config
 
 
 @pytest.fixture(scope="session")
 async def engine() -> AsyncIterator[AsyncEngine]:
-    assert DATABASE_URL
     config = alembic_config()
     # Start from nothing so the migrations themselves are under test.
     await asyncio.to_thread(command.downgrade, config, "base")
@@ -61,9 +51,8 @@ async def engine() -> AsyncIterator[AsyncEngine]:
 @pytest.fixture
 async def sessionmaker(engine: AsyncEngine) -> AsyncIterator[async_sessionmaker[AsyncSession]]:
     async with engine.begin() as conn:
-        await conn.execute(
-            text(
-                "TRUNCATE sites, checks, check_results, incidents, alerts, dns_baselines RESTART IDENTITY CASCADE"
-            )
-        )
+        # Children first. SQLite reuses ids once a table is empty, so every
+        # test's first site is id 1 again.
+        for table in reversed(Base.metadata.sorted_tables):
+            await conn.execute(text(f"DELETE FROM {table.name}"))
     yield make_sessionmaker(engine)

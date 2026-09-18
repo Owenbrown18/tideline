@@ -5,19 +5,18 @@ description = "Monitoring service for the websites OBdesign runs: uptime, conten
 authors = [{ name = "Owen Brown" }]
 requires-python = ">=3.12"
 dependencies = [
+    "aiosqlite>=0.22.1",
     "alembic>=1.20.0",
-    "apscheduler>=3.10,<4",
     "boto3>=1.43.97",
     "dnspython>=2.8.0",
     "fastapi>=0.141.1",
     "httpx>=0.28.1",
     "jinja2>=3.1.6",
-    "psycopg[binary]>=3.2",
+    "mangum>=0.22.0",
     "pydantic>=2.13.5",
     "pydantic-settings>=2.15.0",
     "pyyaml>=6.0.3",
     "sqlalchemy[asyncio]>=2.0",
-    "uvicorn[standard]>=0.53.0",
 ]
 
 [project.scripts]
@@ -33,12 +32,14 @@ dev = [
     "botocore-stubs>=1.43.67",
     "moto[ses]>=5.2.3",
     "mypy>=2.3.1",
+    "psycopg[binary]>=3.3.5",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
     "respx>=0.23.1",
     "ruff>=0.16.8",
     "trustme>=1.2.1",
     "types-pyyaml>=6.0.12.20260906",
+    "uvicorn[standard]>=0.53.0",
 ]
 
 [tool.ruff]
@@ -73,4 +74,4 @@ pythonpath = ["."]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "session"
 asyncio_default_test_loop_scope = "session"
-markers = ["integration: needs a real Postgres (TIDELINE_TEST_DATABASE_URL)"]
+markers = ["integration: uses a real SQLite database file, built through the migrations"]

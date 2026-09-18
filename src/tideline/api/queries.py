@@ -9,10 +9,11 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import Row, func, select, text
+from sqlalchemy import Row, func, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
-from tideline.db.models import Check, Incident, Site
+from tideline.db.models import Check, CheckResult, Incident, Site
 
 # The worst status wins when a site has many checks.
 STATUS_RANK = {"ok": 0, "warn": 1, "fail": 2}
@@ -47,33 +48,69 @@ class SiteStatus:
         return [c.summary or "" for c in self.checks if c.status and c.status != "ok"]
 
 
-async def _latest_results(session: AsyncSession, site_id: int | None = None) -> dict[int, Row[Any]]:
-    """The newest result per check, as {check_id: row}.
+def percentile(values: list[float], fraction: float) -> float | None:
+    """Linear-interpolated percentile, the same definition as SQL's percentile_cont."""
+    if not values:
+        return None
+    ordered = sorted(values)
+    position = fraction * (len(ordered) - 1)
+    low = math.floor(position)
+    high = min(low + 1, len(ordered) - 1)
+    return ordered[low] + (ordered[high] - ordered[low]) * (position - low)
 
-    DISTINCT ON is Postgres's direct way to say "one row per check, the newest
-    first", and it uses the (check_id, started_at) index.
+
+def total_ms(detail: dict[str, Any] | None) -> float | None:
+    """The page fetch time a result recorded, if it recorded one."""
+    value = (detail or {}).get("total_ms")
+    return float(value) if isinstance(value, int | float) else None
+
+
+@dataclass
+class LatestResult:
+    check_id: int
+    status: str
+    started_at: datetime
+    duration_ms: int
+    detail: dict[str, Any]
+
+    @property
+    def summary(self) -> str | None:
+        summary = self.detail.get("summary")
+        return str(summary) if summary is not None else None
+
+
+async def _latest_results(
+    session: AsyncSession, site_id: int | None = None
+) -> dict[int, LatestResult]:
+    """The newest result per check, as {check_id: result}.
+
+    A window function numbers each check's results newest first, and the
+    outer query keeps number 1. It uses the (check_id, started_at) index.
     """
-    where = "WHERE c.site_id = :site_id" if site_id is not None else ""
-    sql = text(
-        f"""
-        SELECT DISTINCT ON (r.check_id)
-               r.check_id, r.status, r.started_at, r.duration_ms,
-               r.detail->>'summary' AS summary, r.detail
-        FROM check_results r
-        JOIN checks c ON c.id = r.check_id
-        {where}
-        ORDER BY r.check_id, r.started_at DESC, r.id DESC
-        """
+    newest_first = (
+        func.row_number()
+        .over(
+            partition_by=CheckResult.check_id,
+            order_by=(CheckResult.started_at.desc(), CheckResult.id.desc()),
+        )
+        .label("n")
     )
-    params = {"site_id": site_id} if site_id is not None else {}
-    rows = (await session.execute(sql, params)).all()
-    return {row.check_id: row for row in rows}
+    ranked = select(CheckResult, newest_first).join(Check, Check.id == CheckResult.check_id)
+    if site_id is not None:
+        ranked = ranked.where(Check.site_id == site_id)
+    inner = ranked.subquery()
+    newest = aliased(CheckResult, inner)
+    rows = (await session.scalars(select(newest).where(inner.c.n == 1))).all()
+    return {
+        r.check_id: LatestResult(r.check_id, r.status, r.started_at, r.duration_ms, r.detail or {})
+        for r in rows
+    }
 
 
 async def site_statuses(session: AsyncSession, site_id: int | None = None) -> list[SiteStatus]:
     sites = list(
         await session.scalars(
-            select(Site).where(Site.id == site_id if site_id else text("true")).order_by(Site.name)
+            select(Site).where(Site.id == site_id if site_id else true()).order_by(Site.name)
         )
     )
     if not sites:
@@ -154,54 +191,46 @@ async def uptime_stats(session: AsyncSession, site_id: int, days: int = 30) -> U
     (`total_ms`), not from `duration_ms`: when the uptime and content checks
     share one request, only one of them paid for it.
     """
-    since = datetime.now(UTC) - timedelta(days=days)
-    row = (
+    now = datetime.now(UTC)
+    since = now - timedelta(days=days)
+    results = (
         await session.execute(
-            text(
-                """
-                SELECT count(*) AS results,
-                       count(*) FILTER (WHERE r.status = 'ok') AS ok,
-                       percentile_cont(0.5) WITHIN GROUP (
-                           ORDER BY (r.detail->>'total_ms')::numeric) AS p50,
-                       percentile_cont(0.95) WITHIN GROUP (
-                           ORDER BY (r.detail->>'total_ms')::numeric) AS p95
-                FROM check_results r
-                JOIN checks c ON c.id = r.check_id
-                WHERE c.site_id = :site_id AND c.kind = 'uptime' AND r.started_at >= :since
-                """
-            ),
-            {"site_id": site_id, "since": since},
+            select(CheckResult.status, CheckResult.detail)
+            .join(Check, Check.id == CheckResult.check_id)
+            .where(
+                Check.site_id == site_id,
+                Check.kind == "uptime",
+                CheckResult.started_at >= since,
+            )
         )
-    ).one()
-    incident_row = (
-        await session.execute(
-            text(
-                """
-                SELECT count(*) AS incidents,
-                       coalesce(sum(extract(epoch FROM
-                           coalesce(i.resolved_at, now())
-                           - greatest(i.opened_at, :since))), 0) AS seconds
-                FROM incidents i
-                JOIN checks c ON c.id = i.check_id
-                WHERE c.site_id = :site_id AND c.kind = 'uptime'
-                  AND coalesce(i.resolved_at, now()) >= :since
-                """
-            ),
-            {"site_id": site_id, "since": since},
+    ).all()
+    ok = sum(1 for r in results if r.status == "ok")
+    times = [t for t in (total_ms(r.detail) for r in results) if t is not None]
+    p50, p95 = percentile(times, 0.5), percentile(times, 0.95)
+
+    outages = list(
+        await session.scalars(
+            select(Incident)
+            .join(Check, Check.id == Incident.check_id)
+            .where(Check.site_id == site_id, Check.kind == "uptime")
         )
-    ).one()
+    )
+    in_window = [i for i in outages if (i.resolved_at or now) >= since]
+    downtime = sum(
+        ((i.resolved_at or now) - max(i.opened_at, since)).total_seconds() for i in in_window
+    )
     return UptimeStats(
         site_id=site_id,
         days=days,
         since=since,
-        results=row.results,
-        ok=row.ok,
+        results=len(results),
+        ok=ok,
         # Rounded down, so 1 failure in 10,000 is 99.99, never a rounded-up 100.0.
-        uptime_percent=math.floor(100_000 * row.ok / row.results) / 1000 if row.results else None,
-        p50_ms=round(row.p50) if row.p50 is not None else None,
-        p95_ms=round(row.p95) if row.p95 is not None else None,
-        incidents=incident_row.incidents,
-        downtime_seconds=int(incident_row.seconds),
+        uptime_percent=math.floor(100_000 * ok / len(results)) / 1000 if results else None,
+        p50_ms=round(p50) if p50 is not None else None,
+        p95_ms=round(p95) if p95 is not None else None,
+        incidents=len(in_window),
+        downtime_seconds=int(downtime),
     )
 
 
@@ -262,26 +291,18 @@ async def incidents(
 
 async def latest_dns_records(session: AsyncSession, site_id: int) -> dict[str, Any] | None:
     """The records the most recent DNS check saw for this site."""
-    row = (
-        await session.execute(
-            text(
-                """
-                SELECT r.detail->'records' AS records
-                FROM check_results r
-                JOIN checks c ON c.id = r.check_id
-                WHERE c.site_id = :site_id AND c.kind = 'dns'
-                  AND r.detail ? 'records'
-                ORDER BY r.started_at DESC, r.id DESC
-                LIMIT 1
-                """
-            ),
-            {"site_id": site_id},
-        )
-    ).first()
-    if row is None:
-        return None
-    records: dict[str, Any] = row.records
-    return records
+    details = await session.scalars(
+        select(CheckResult.detail)
+        .join(Check, Check.id == CheckResult.check_id)
+        .where(Check.site_id == site_id, Check.kind == "dns")
+        .order_by(CheckResult.started_at.desc(), CheckResult.id.desc())
+        .limit(20)
+    )
+    for detail in details:
+        if detail and "records" in detail:
+            records: dict[str, Any] = detail["records"]
+            return records
+    return None
 
 
 async def resolve_dns_incidents(session: AsyncSession, site_id: int, now: datetime) -> int:
@@ -320,17 +341,17 @@ async def recent_rollups(session: AsyncSession, site_id: int, days: int = 30) ->
 async def recent_results(session: AsyncSession, site_id: int, limit: int = 50) -> list[Row[Any]]:
     return list(
         await session.execute(
-            text(
-                """
-                SELECT c.kind, c.key, r.status, r.started_at, r.duration_ms,
-                       r.detail->>'summary' AS summary
-                FROM check_results r
-                JOIN checks c ON c.id = r.check_id
-                WHERE c.site_id = :site_id
-                ORDER BY r.started_at DESC, r.id DESC
-                LIMIT :limit
-                """
-            ),
-            {"site_id": site_id, "limit": limit},
+            select(
+                Check.kind,
+                Check.key,
+                CheckResult.status,
+                CheckResult.started_at,
+                CheckResult.duration_ms,
+                CheckResult.detail,
+            )
+            .join(Check, Check.id == CheckResult.check_id)
+            .where(Check.site_id == site_id)
+            .order_by(CheckResult.started_at.desc(), CheckResult.id.desc())
+            .limit(limit)
         )
     )
