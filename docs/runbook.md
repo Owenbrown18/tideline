@@ -195,7 +195,7 @@ Two separate paths, on purpose:
   CloudWatch to SNS to Owen's email. This path does not run on the instance, so
   it still works when the instance does not.
 
-Test the watch-the-watcher alarm (about 16 minutes):
+Test the watch-the-watcher alarm (measured 11 min 52 s on 2026-09-18):
 
 ```bash
 aws ssm start-session --target i-010dc8609621b4d18   # sudo -i, cd /opt/sitewatch

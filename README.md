@@ -4,7 +4,7 @@
 
 It is a Python backend running in Docker on AWS, deployed by GitHub Actions, with tests, structured logs, metrics and alarms. The name is a working name.
 
-> **Status (2026-09-18):** **M0 to M5 built and deployed.** Live at https://status.obwebdesign.ca/: 11 sites, 8 check kinds, 88 checks, SES alerts, CloudWatch logs/metrics/5 alarms, nightly backups with a tested restore, daily rollups, and the first monthly report for all 11 sites emailed on 2026-09-18. 229 tests. Open items: GitHub Actions is disabled because the GitHub account is flagged (appeal filed), so deploys run from the laptop; the SNS alarm subscription needs one confirmation click; the heartbeat alarm takes about 25 minutes to fire rather than 15 (measured, see infra/alarms.tf); and two real findings on client sites are waiting on Owen (see below).
+> **Status (2026-09-18): M0 to M5 done and verified on the live system.** https://status.obwebdesign.ca/ watches 11 sites with 88 checks across 8 kinds, emails incidents through SES, emails monthly reports on the 1st, backs up nightly (restore verified), and alarms through CloudWatch and SNS, including a dead-worker alarm measured at 11 min 52 s. 238 tests; the CI workflow passes end to end when run locally with `act`. **One thing outside the code:** GitHub Actions is disabled because the GitHub account is flagged (appeal open), so deploys run from the laptop with the same commands the workflow uses (docs/runbook.md).
 >
 > **Run it locally:** [docs/local-dev.md](docs/local-dev.md). **How the code fits together:** [docs/architecture.md](docs/architecture.md).
 
@@ -162,7 +162,7 @@ Everything except `/healthz` requires auth (a bearer token for the API, basic au
 
 ### Watching the watcher
 If the worker dies, every site looks fine and nobody is told. So:
-- The worker publishes `worker_heartbeat` every cycle. A CloudWatch alarm fires if it is **missing** for 10 one-minute periods (missing data counts as breaching) and emails Owen through SNS. That path does not depend on the instance or on SES. Measured 2026-09-17: with three 5-minute periods, detection took 25 minutes, because CloudWatch waits past the window for late data; ten 1-minute periods was the fix.
+- The worker publishes `worker_heartbeat` every minute. A CloudWatch metric-math alarm on `FILL(heartbeats, 0)` fires after ten minutes of zeros and emails Owen through SNS, a path that does not depend on the instance or on SES. **Measured: 11 min 52 s** from stopping the worker to the alarm, after two slower designs were measured and rejected ([decision 0004](docs/decisions/0004-heartbeat-alarm.md)).
 - Alarms also fire on disk above 80%, sustained high memory, and a failed nightly backup.
 
 ### Security
@@ -206,6 +206,7 @@ sitewatch/
   infra/                    Terraform: network/SG, EC2, IAM, ECR, S3, SSM document, GitHub OIDC
   deploy/                   what runs on the server: compose.prod.yaml, Caddyfile, deploy.sh
   scripts/                  bootstrap_state.sh (Terraform state bucket), put_secrets.sh (SSM)
+  deploy/restore.sh         check a backup, or replace the live database with one
   docs/
     architecture.md
     local-dev.md            run, demo, test
@@ -255,7 +256,7 @@ Each milestone ends with something working and verified, not "code written". Wor
 - JSON logs to CloudWatch; EMF metrics; CloudWatch agent; heartbeat, disk and backup alarms; a CloudWatch dashboard.
 - Checks 5–6 (DNS drift, SPF/DMARC). Baselines captured on first run.
 - Nightly `pg_dump` to S3, and **one real restore tested** and written into the runbook.
-- Done when: stopping the worker on the server produces the heartbeat alarm email within 15 minutes, and a real restore has been done once. **Verified 2026-09-17**: the worker was stopped on the live instance and the alarm fired and invoked SNS; a backup was restored into a scratch database (11 sites, 66 checks, 169 results) and checked. Alarm emails need the SNS subscription confirmed once.
+- Done when: stopping the worker on the server produces the heartbeat alarm email within 15 minutes, and a real restore has been done once. **Verified 2026-09-18**: stopping the worker on the live instance produced the alarm email in 11 min 52 s. Restores: one by hand on 2026-09-17, and `restore.sh` against the first automatic nightly backup on 2026-09-18 (11 sites, 88 checks, 1,737 results).
 
 **M5: Reports and the rest of the checks** (built and deployed 2026-09-18)
 - Daily rollups; uptime % and p50/p95 per site; 30-day views on the dashboard.
