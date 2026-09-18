@@ -115,6 +115,46 @@ async def test_broken_external_link_is_only_a_warning(make_clients):
     assert result.detail["external_broken"][0]["status"] == 410
 
 
+@pytest.mark.parametrize("status", [429, 403, 401, 503, 999])
+@respx.mock
+async def test_bot_blocking_external_sites_are_not_broken(make_clients, status):
+    """Instagram answers 429 and LinkedIn 999 to anything without a browser
+    session. Those links work fine for visitors, so reporting them would train
+    Owen to ignore this check (measured on the live sites, 2026-09-17)."""
+    respx.get(SITE).respond(200, html=page("https://www.instagram.com/someclient"))
+    respx.head("https://www.instagram.com/someclient").respond(status)
+    respx.get("https://www.instagram.com/someclient").respond(status)
+
+    result = await links.run({"domain": "example.ca", "url": SITE}, make_clients())
+    assert result.status == "ok"
+    assert result.detail["external_broken"] == []
+
+
+@respx.mock
+async def test_the_same_broken_link_on_many_pages_is_reported_once(make_clients):
+    """A dead link in a footer is one problem, not one per page."""
+    footer = page("/a", "/b", "https://partner.test/gone")
+    respx.get(SITE).respond(200, html=footer)
+    for path in ("a", "b"):
+        respx.head(f"https://example.ca/{path}").respond(200)
+        respx.get(f"https://example.ca/{path}").respond(200, html=footer)
+    respx.head("https://partner.test/gone").respond(404)
+
+    result = await links.run({"domain": "example.ca", "url": SITE}, make_clients())
+    assert len(result.detail["external_broken"]) == 1
+    assert "1 broken link" in result.summary
+
+
+@respx.mock
+async def test_internal_rate_limiting_is_not_a_broken_page(make_clients):
+    respx.get(SITE).respond(200, html=page("/busy"))
+    respx.head("https://example.ca/busy").respond(429)
+    respx.get("https://example.ca/busy").respond(429)
+
+    result = await links.run({"domain": "example.ca", "url": SITE}, make_clients())
+    assert result.status == "ok"
+
+
 @respx.mock
 async def test_head_refused_falls_back_to_get(make_clients):
     respx.get(SITE).respond(200, html=page("/about"))

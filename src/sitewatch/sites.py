@@ -11,17 +11,18 @@ History (results, incidents) is never thrown away by a seed.
 """
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from sitewatch.checks import DEFAULT_INTERVALS
-from sitewatch.db.models import Check, Site
+from sitewatch.db.models import Check, Incident, Site
 
 SEEDED_KINDS = ("uptime", "content", "tls", "domain", "dns", "email_auth", "links", "form")
 
@@ -164,11 +165,13 @@ class SeedReport:
     checks_added: int = 0
     checks_updated: int = 0
     checks_disabled: int = 0
+    incidents_closed: int = 0
 
 
 async def seed(session: AsyncSession, sites_file: SitesFile) -> SeedReport:
     """Make the database match the file. The caller commits."""
     report = SeedReport()
+    turned_off: list[Check] = []
     existing = {
         site.domain: site
         for site in await session.scalars(select(Site).options(selectinload(Site.checks)))
@@ -203,6 +206,7 @@ async def seed(session: AsyncSession, sites_file: SitesFile) -> SeedReport:
                 )
                 report.checks_added += 1
                 continue
+            was_enabled = check.enabled
             before = (check.interval_seconds, check.config, check.enabled)
             check.kind = spec.kind
             check.interval_seconds = spec.interval_seconds
@@ -210,18 +214,38 @@ async def seed(session: AsyncSession, sites_file: SitesFile) -> SeedReport:
             check.enabled = spec.enabled
             if before != (spec.interval_seconds, spec.config, spec.enabled):
                 report.checks_updated += 1
+            if was_enabled and not spec.enabled:
+                turned_off.append(check)
 
         wanted_keys = {spec.key for spec in wanted}
         for check in site.checks:
             if check.key not in wanted_keys and check.enabled and check.kind in SEEDED_KINDS:
                 check.enabled = False
                 report.checks_disabled += 1
+                turned_off.append(check)
 
     listed = {entry.domain for entry in sites_file.sites}
     for domain, site in existing.items():
         if domain not in listed and site.active:
             site.active = False
             report.sites_deactivated += 1
+
+    await session.flush()
+
+    # A check that is switched off can never produce the ok result that would
+    # close its incident, so switching it off closes it. Without this, disabling
+    # the form check on a site with no contact form left its incident open for
+    # ever (found on 2026-09-17).
+    if turned_off:
+        closed = await session.execute(
+            update(Incident)
+            .where(
+                Incident.check_id.in_([check.id for check in turned_off]),
+                Incident.resolved_at.is_(None),
+            )
+            .values(resolved_at=datetime.now(UTC), summary=Incident.summary + " (check turned off)")
+        )
+        report.incidents_closed = getattr(closed, "rowcount", 0) or 0
 
     await session.flush()
     return report

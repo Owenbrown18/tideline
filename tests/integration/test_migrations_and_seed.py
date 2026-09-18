@@ -72,6 +72,35 @@ async def test_seed_updates_disables_and_deactivates(sessionmaker):
         assert domain.enabled is False
 
 
+async def test_disabling_a_check_closes_its_open_incident(sessionmaker):
+    """A check that is off can never produce the ok result that would close it."""
+    from datetime import UTC, datetime
+
+    from sitewatch.db.models import Incident
+
+    async with sessionmaker() as session, session.begin():
+        await seed(session, sites_file(BAKERY))
+    async with sessionmaker() as session, session.begin():
+        check = await session.scalar(select(Check).where(Check.kind == "form"))
+        session.add(
+            Incident(
+                check_id=check.id,
+                opened_at=datetime.now(UTC),
+                severity="critical",
+                summary="no contact form found",
+            )
+        )
+
+    async with sessionmaker() as session, session.begin():
+        report = await seed(session, sites_file(BAKERY | {"checks": {"form": False}}))
+    assert report.incidents_closed == 1
+
+    async with sessionmaker() as session:
+        incident = await session.scalar(select(Incident))
+        assert incident.resolved_at is not None
+        assert "check turned off" in incident.summary
+
+
 async def test_removing_a_url_disables_its_checks(sessionmaker):
     two_pages = BAKERY | {"urls": ["https://davesbakery.ca/", "https://davesbakery.ca/menu"]}
     async with sessionmaker() as session, session.begin():

@@ -26,6 +26,18 @@ import httpx
 
 from sitewatch.checks.base import Clients, Config, Result
 
+# What counts as broken.
+#
+# Internal: any 4xx or 5xx, because it is the client's own page. 429 is excluded
+# because that is their own CDN rate-limiting the crawl, not a broken page.
+#
+# External: only "gone" answers and connection failures. Measured on the live
+# sites (2026-09-17): Instagram replies 429 to anything without a browser
+# session, and LinkedIn replies 999. Those links work perfectly for visitors, so
+# reporting them would train Owen to ignore this check.
+INTERNAL_OK_STATUSES = (429,)
+EXTERNAL_BROKEN_STATUSES = (404, 410)
+
 MAX_PAGES = 25
 MAX_DEPTH = 2
 PAUSE_SECONDS = 0.2
@@ -85,6 +97,7 @@ async def run(config: Config, clients: Clients) -> Result | None:
     crawled: dict[str, str] = {start_url: first.body}
     seen_pages = {start_url}
     checked: dict[str, tuple[int | None, str | None]] = {}
+    reported: set[str] = set()
     internal_broken: list[dict[str, Any]] = []
     external_broken: list[dict[str, Any]] = []
 
@@ -103,8 +116,17 @@ async def run(config: Config, clients: Clients) -> Result | None:
                 await clients.sleep(PAUSE_SECONDS)
                 checked[link] = await _status_of(clients.http, link)
             status, error = checked[link]
-            broken = error is not None or (status is not None and status >= 400)
-            if broken:
+            if internal:
+                broken = error is not None or (
+                    status is not None and status >= 400 and status not in INTERNAL_OK_STATUSES
+                )
+            else:
+                broken = error is not None or status in EXTERNAL_BROKEN_STATUSES
+
+            if broken and link not in reported:
+                # One entry per URL, not per page it appears on: a broken link in
+                # a footer is one problem, not one problem per page.
+                reported.add(link)
                 record = {
                     "url": link,
                     "status": status,
