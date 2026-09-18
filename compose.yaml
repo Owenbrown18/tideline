@@ -17,6 +17,7 @@ x-app: &app
   environment:
     SITEWATCH_DATABASE_URL: postgresql+psycopg://sitewatch:sitewatch@postgres:5432/sitewatch
     SITEWATCH_LOG_LEVEL: ${SITEWATCH_LOG_LEVEL:-INFO}
+    SITEWATCH_PUBLIC_URL: ${SITEWATCH_PUBLIC_URL:-http://localhost:8000}
     # Local development values only. Production reads these from SSM Parameter Store.
     SITEWATCH_API_TOKEN: ${SITEWATCH_API_TOKEN:-dev-token}
     SITEWATCH_DASHBOARD_USER: ${SITEWATCH_DASHBOARD_USER:-owen}

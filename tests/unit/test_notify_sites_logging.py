@@ -10,8 +10,10 @@ from sitewatch.checks import DEFAULT_INTERVALS
 from sitewatch.notify.base import (
     AlertMessage,
     LogNotifier,
+    describe,
     format_duration,
     render_body,
+    render_html,
     render_subject,
 )
 from sitewatch.observability.logging import JsonFormatter, log_event
@@ -53,21 +55,75 @@ def message(**overrides):
 
 def test_open_alert_text():
     msg = message()
-    assert render_subject(msg) == "[Sitewatch] PROBLEM: Daves' Bakery (davesbakery.ca) uptime"
-    assert "HTTP 503" in render_body(msg)
-    assert "Duration" not in render_body(msg)
+    assert render_subject(msg) == "Down: Daves' Bakery"
+    body = render_body(msg)
+    assert body.startswith("Daves' Bakery is down.")
+    assert "HTTP 503" in body
+    assert "What to do:" in body
+    assert "Lasted" not in body
 
 
-def test_resolved_alert_includes_duration():
+@pytest.mark.parametrize(
+    ("overrides", "subject"),
+    [
+        ({"check_kind": "form"}, "Down: Daves' Bakery, contact form"),
+        ({"kind": "escalated", "check_kind": "tls"}, "Now critical: Daves' Bakery, certificate"),
+        ({"kind": "reminder"}, "Still down: Daves' Bakery"),
+        (
+            {"severity": "warning", "check_kind": "email_auth"},
+            "Warning: Daves' Bakery, email authentication",
+        ),
+        (
+            {"severity": "warning", "kind": "reminder", "check_kind": "dns"},
+            "Still a warning: Daves' Bakery, DNS",
+        ),
+    ],
+)
+def test_alert_subjects_name_the_site_and_the_check(overrides, subject):
+    assert render_subject(message(**overrides)) == subject
+
+
+def test_resolved_alert_says_how_long_it_lasted():
     msg = message(kind="resolved", resolved_at=FIXED_NOW + timedelta(minutes=47))
-    assert render_subject(msg).startswith("[Sitewatch] RESOLVED:")
-    assert "Duration: 47 min" in render_body(msg)
+    assert render_subject(msg) == "Fixed: Daves' Bakery, after 47 min"
+    body = render_body(msg)
+    assert body.startswith("Daves' Bakery is back up.")
+    assert "It was: https://davesbakery.ca/ is down: HTTP 503." in body
+    assert "47 min" in body
+    # Nothing to do once it is fixed.
+    assert "What to do" not in body
+
+
+def test_alert_times_are_in_pacific_time():
+    # FIXED_NOW is 12:00 UTC, which is 05:00 in Vancouver in September (PDT).
+    facts = dict(describe(message(), zone="America/Vancouver").facts)
+    assert facts["Since"].endswith("05:00 PDT")
+
+
+def test_alert_links_to_the_site_page_only_when_the_address_is_known():
+    msg = message(site_id=7)
+    assert describe(msg, base_url="https://status.example.ca/").link == (
+        "https://status.example.ca/sites/7/view"
+    )
+    assert describe(msg, base_url="").link is None
+    assert describe(message(), base_url="https://status.example.ca").link is None
+
+
+def test_alert_html_matches_the_text():
+    msg = message(check_kind="form", summary="The form posts to /api/contact, which returns 404")
+    html = render_html(msg)
+    assert "Daves&#39; Bakery&#39;s contact form isn&#39;t delivering." in html
+    assert "/api/contact" in html
+    assert "#c0432f" in html  # the "down" stripe
+    warning = render_html(message(severity="warning", check_kind="email_auth"))
+    assert "#a8740f" in warning
 
 
 def test_alert_copy_has_no_em_dashes():
     for kind in ("open", "escalated", "reminder", "resolved"):
         msg = message(kind=kind, resolved_at=FIXED_NOW + timedelta(hours=1))
-        assert "—" not in render_subject(msg) + render_body(msg)
+        text = render_subject(msg) + render_body(msg) + render_html(msg)
+        assert "\u2014" not in text
 
 
 async def test_log_notifier_writes_a_warning(caplog):

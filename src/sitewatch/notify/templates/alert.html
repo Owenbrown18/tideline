@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ view.subject }}</title>
+</head>
+{#
+  The alert email from the brand proposal. Inline styles and tables, because
+  mail clients ignore stylesheets; font stacks fall back to Georgia and the
+  system sans where web fonts are not loaded (most of them).
+  The stripe and the wordmark's period carry the status colour.
+#}
+{%- set colour = {'down': '#c0432f', 'warn': '#a8740f', 'up': '#2f6fa6'}[view.tone] -%}
+{%- set serif = "Fraunces, Georgia, 'Times New Roman', serif" -%}
+{%- set sans = "Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" -%}
+{%- set mono = "'IBM Plex Mono', Menlo, Consolas, monospace" -%}
+{%- set label = "font-family:" ~ sans ~ ";font-size:11px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:#636c68;" -%}
+<body style="margin:0;padding:0;background:#e9e7e1;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#e9e7e1;">
+<tr><td align="center" style="padding:32px 12px;">
+<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:100%;max-width:600px;background:#ffffff;border-radius:4px;overflow:hidden;">
+
+  <tr><td style="height:6px;line-height:6px;font-size:0;background:{{ colour }};">&nbsp;</td></tr>
+
+  <tr><td style="padding:30px 36px 8px;">
+    <div style="font-family:{{ serif }};font-weight:700;font-size:18px;letter-spacing:-0.04em;color:#0b1826;">Tideline<span style="color:{{ colour }};">.</span></div>
+    <h1 style="margin:16px 0 0;font-family:{{ serif }};font-weight:600;font-size:32px;line-height:1.1;letter-spacing:-0.035em;color:#1e1e1e;">{{ view.headline }}</h1>
+    <p style="margin:16px 0 0;font-family:{{ sans }};font-size:15px;line-height:1.6;color:#3a403e;">{{ view.summary }}</p>
+  </td></tr>
+
+  <tr><td style="padding:16px 36px 8px;">
+    {% for name, value in view.facts %}
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="{{ '' if loop.last else 'border-bottom:1px solid #efede8;' }}">
+      <tr>
+        <td width="110" valign="top" style="padding:12px 16px 11px 0;{{ label }}">{{ name }}</td>
+        <td valign="top" style="padding:11px 0;{{ ('font-family:' ~ mono ~ ';font-size:13px;') if name == 'Site' else ('font-family:' ~ sans ~ ';font-size:14px;') }}color:#1e1e1e;">{{ value }}</td>
+      </tr>
+    </table>
+    {% endfor %}
+  </td></tr>
+
+  <tr><td style="padding:18px 36px 30px;">
+    {% if view.guidance %}
+    <p style="margin:0 0 20px;font-family:{{ sans }};font-size:15px;line-height:1.6;color:#3a403e;"><strong style="font-weight:600;color:#1e1e1e;">What to do.</strong> {{ view.guidance }}</p>
+    {% endif %}
+    {% if view.link %}
+    <table role="presentation" cellpadding="0" cellspacing="0"><tr>
+      <td style="background:#0b1826;border-radius:8px;">
+        <a href="{{ view.link }}" style="display:inline-block;padding:13px 20px;font-family:{{ sans }};font-weight:600;font-size:14px;color:#f7f6f3;text-decoration:none;">Open in Tideline</a>
+      </td>
+    </tr></table>
+    {% endif %}
+  </td></tr>
+
+  <tr><td style="padding:18px 36px 22px;background:#f7f6f3;font-family:{{ sans }};font-size:12px;line-height:1.55;color:#636c68;">{{ view.footer }}</td></tr>
+
+</table>
+</td></tr>
+</table>
+</body>
+</html>

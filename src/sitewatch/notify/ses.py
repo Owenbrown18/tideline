@@ -23,7 +23,7 @@ import boto3
 from botocore.config import Config as BotoConfig
 from botocore.exceptions import BotoCoreError, ClientError
 
-from sitewatch.notify.base import AlertMessage, render_body, render_subject
+from sitewatch.notify.base import AlertMessage, render_body, render_html, render_subject
 from sitewatch.observability.logging import log_event
 
 log = logging.getLogger("sitewatch.notify.ses")
@@ -68,7 +68,7 @@ class SesNotifier:
         subject = render_subject(msg)
         body = render_body(msg)
         try:
-            message_id = await asyncio.to_thread(self._send, subject, body)
+            message_id = await asyncio.to_thread(self._send, subject, body, render_html(msg))
         except (ClientError, BotoCoreError) as exc:
             # Raising means the incident is still recorded and the alert is
             # retried on the next run (incidents/engine.py).

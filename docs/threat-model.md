@@ -10,7 +10,7 @@ SENG 360, kept deliberately small because the system is small.
 |---|---|
 | **The client site list** | Which small businesses OBdesign runs, their domains, and each one's weak spots (missing SPF/DMARC, broken forms). A ready-made target list. |
 | **Findings about clients** | "These 8 domains can be spoofed" is a spoofing shopping list. |
-| **Alert and report email** | Sitewatch can send mail from `sitewatch@obwebdesign.ca`. Abused, it could phish, or email a client something they should never see. |
+| **Alert and report email** | Sitewatch can send mail from `tideline@obwebdesign.ca`. Abused, it could phish, or email a client something they should never see. |
 | **The AWS account** | Billing, and a trusted identity that could be used to attack others. |
 | **Monitoring history** | The record that proves the sites have been healthy. Loss is embarrassing, not dangerous. |
 
@@ -28,7 +28,7 @@ SENG 360, kept deliberately small because the system is small.
 |---|---|
 | Someone uses the API or dashboard as Owen | Bearer token for the API, basic auth for the dashboard, both random 40-character values in SSM. Compared with `secrets.compare_digest` so timing does not leak them. The app refuses to start if either is empty. |
 | Someone deploys as GitHub Actions | The OIDC trust policy pins both the repo (`Owenbrown18/sitewatch`) and the branch (`main`). A fork or another branch cannot assume the role. There are no AWS keys to steal. |
-| Someone sends mail as `sitewatch@obwebdesign.ca` | Only the instance role may call SES, and only to Owen (next section). The domain has DKIM, so forged mail without the key fails authentication. |
+| Someone sends mail as `tideline@obwebdesign.ca` | Only the instance role may call SES, and only to Owen (next section). The domain has DKIM, so forged mail without the key fails authentication. |
 
 ### Tampering (changing things)
 | Threat | Mitigation |

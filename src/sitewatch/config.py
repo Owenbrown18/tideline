@@ -43,8 +43,15 @@ class Settings(BaseSettings):
     # them to alert_email. Sitewatch has no client addresses: alerts go to Owen.
     notify_channel: str = "log"
     alert_email: str = "owenjosephbrown@gmail.com"
-    alert_sender: str = "sitewatch@obwebdesign.ca"
+    alert_sender: str = "Tideline <tideline@obwebdesign.ca>"
+    # The dashboard's public address, for the "Open in Tideline" link in alerts.
+    # Empty leaves the link out (local development).
+    public_url: str = ""
     aws_region: str = "ca-central-1"
+
+    # Times people read (dashboard, emails, reports) are shown in this zone.
+    # Everything stored and every API field stays in UTC.
+    display_timezone: str = "America/Vancouver"
 
     # Where RDAP lookups go. rdap.org redirects to the right registry (CIRA for .ca).
     rdap_base_url: str = "https://rdap.org/domain/"

@@ -74,16 +74,20 @@ async def test_ses_only_ever_addresses_owen(aws_credentials):
         sent: list[dict] = []
         original = notifier._send
 
-        def record(subject: str, body: str) -> str:
-            sent.append({"subject": subject, "body": body})
-            return original(subject, body)
+        def record(subject: str, body: str, html: str | None = None) -> str:
+            sent.append({"subject": subject, "body": body, "html": html})
+            return original(subject, body, html)
 
         notifier._send = record  # type: ignore[method-assign]
         await notifier.send(message(domain="davesbakery.ca", site_name="Daves' Bakery"))
 
         assert notifier.recipient == OWEN
-        # The client's domain is the subject of the alert, not its recipient.
-        assert "davesbakery.ca" in sent[0]["subject"]
+        # The client is what the alert is about, never who it goes to.
+        assert "Daves' Bakery" in sent[0]["subject"]
+        assert "davesbakery.ca" in sent[0]["body"]
+        # Sent as HTML with the plain text as the fallback.
+        assert sent[0]["html"] is not None
+        assert "davesbakery.ca" in sent[0]["html"]
 
 
 async def test_ses_failure_raises_so_the_alert_is_retried(aws_credentials):

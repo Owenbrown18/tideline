@@ -112,9 +112,11 @@ async def process_result(
         check_kind=check.kind,
         check_key=check.key,
         severity=incident.severity,
-        summary=summary if kind != "resolved" else f"Recovered. Was: {incident.summary}",
+        # A resolved alert repeats what the problem was; the email says it is fixed.
+        summary=summary if kind != "resolved" else incident.summary,
         opened_at=incident.opened_at,
         resolved_at=incident.resolved_at,
+        site_id=check.site.id,
     )
     try:
         await notifier.send(message)

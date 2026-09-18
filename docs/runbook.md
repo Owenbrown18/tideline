@@ -190,7 +190,7 @@ addresses behind `www`, which produced seven false drift incidents on
 Two separate paths, on purpose:
 
 - **Incidents** (a site is down, a certificate is expiring) go out as SES email
-  from `sitewatch@obwebdesign.ca` to Owen. The app sends these.
+  from `tideline@obwebdesign.ca` to Owen. The app sends these.
 - **Alarms** (the worker died, the disk is full, a backup failed) go through
   CloudWatch to SNS to Owen's email. This path does not run on the instance, so
   it still works when the instance does not.
