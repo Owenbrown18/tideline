@@ -201,3 +201,16 @@ a:hover { color: var(--up-text); }
   .breathe { animation: breathe 3.2s ease-in-out infinite; }
   @keyframes breathe { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
 }
+
+/* --- sign in ------------------------------------------------------------- */
+.signin-page { min-height: 100vh; display: grid; place-items: center; background: var(--deep-gradient) var(--deep); padding: 24px 16px; }
+.signin { width: 100%; max-width: 380px; background: var(--white); border-radius: var(--radius); padding: 32px 28px 24px; display: flex; flex-direction: column; gap: 10px; }
+.signin .wordmark { margin: 0; color: var(--deep); font-size: 24px; }
+.signin h1 { margin: 6px 0 8px; font-family: var(--serif); font-variation-settings: "opsz" 144; font-weight: 600; font-size: 32px; letter-spacing: -0.035em; }
+.signin form { display: flex; flex-direction: column; gap: 6px; }
+.signin label { font-size: 13px; font-weight: 600; color: var(--ink-2); margin-top: 8px; }
+.signin input { font: 16px var(--sans); padding: 11px 12px; border: 1px solid #d8d5cd; border-radius: 8px; background: var(--white); color: var(--ink); }
+.signin input:focus-visible { outline: 2px solid var(--up); outline-offset: 1px; border-color: var(--up); }
+.signin .btn { margin-top: 16px; }
+.signin-error { margin: 0; padding: 10px 12px; border-radius: 8px; background: #fdf6f4; color: var(--down-text); font-size: 14px; }
+.signin-foot { margin: 14px 0 0; font-size: 12px; color: var(--slate); text-align: center; }

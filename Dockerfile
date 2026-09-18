@@ -1,38 +1,32 @@
-# One image, two processes: `tideline worker` (default) or the API (M2).
-# Multi-stage: the build stage has uv and compiles the virtualenv; the final
-# stage copies only that virtualenv, so no build tools ship to production.
-# Builds natively for arm64 (Graviton, Apple Silicon) and amd64.
+# One image, two Lambda functions (infra/lambda.tf):
+#   the scheduled run   CMD tideline.aws_lambda.run_handler
+#   the dashboard       CMD tideline.aws_lambda.web_handler (the default below)
+# Built on AWS's own Lambda Python base image for arm64 (Graviton: cheaper per
+# second than x86). Multi-stage: uv resolves and installs the dependencies in
+# the build stage; the final image gets only the installed packages.
 
 # ---- build ------------------------------------------------------------------
-FROM python:3.12-slim-bookworm AS build
+FROM public.ecr.aws/lambda/python:3.12-arm64 AS build
 COPY --from=ghcr.io/astral-sh/uv:0.12.15 /uv /usr/local/bin/uv
-ENV UV_COMPILE_BYTECODE=1 \
-    UV_LINK_MODE=copy \
-    UV_PYTHON_DOWNLOADS=never \
-    UV_PROJECT_ENVIRONMENT=/app/.venv
-WORKDIR /app
+ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never
+WORKDIR /build
 
-# Dependencies first, in their own layer: this layer is reused on every build
-# where only application code changed, which makes rebuilds seconds, not minutes.
+# Dependencies first, in their own layer, so a code-only change rebuilds in seconds.
 COPY pyproject.toml uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --locked --no-dev --no-install-project
+    uv export --locked --no-dev --no-emit-project --format requirements.txt -o requirements.txt \
+ && uv pip install --system --target /packages -r requirements.txt
 
 COPY src ./src
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --locked --no-dev --no-editable
+    uv pip install --system --target /packages --no-deps .
 
 # ---- runtime ----------------------------------------------------------------
-FROM python:3.12-slim-bookworm AS runtime
-RUN groupadd --system --gid 10001 tideline \
- && useradd --system --uid 10001 --gid tideline --home-dir /app --shell /usr/sbin/nologin tideline
-WORKDIR /app
-COPY --from=build /app/.venv /app/.venv
-COPY alembic.ini ./
-COPY alembic ./alembic
-ENV PATH=/app/.venv/bin:$PATH \
-    PYTHONUNBUFFERED=1 \
-    TIDELINE_ALEMBIC_INI=/app/alembic.ini
-# Never run as root inside the container.
-USER tideline
-CMD ["tideline", "worker"]
+FROM public.ecr.aws/lambda/python:3.12-arm64
+COPY --from=build /packages ${LAMBDA_TASK_ROOT}
+COPY alembic.ini ${LAMBDA_TASK_ROOT}/
+COPY alembic ${LAMBDA_TASK_ROOT}/alembic
+ENV TIDELINE_ALEMBIC_INI=${LAMBDA_TASK_ROOT}/alembic.ini \
+    TIDELINE_DATABASE_URL=sqlite+aiosqlite:////tmp/tideline.db \
+    PYTHONUNBUFFERED=1
+CMD ["tideline.aws_lambda.web_handler"]

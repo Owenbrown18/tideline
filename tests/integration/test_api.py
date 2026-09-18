@@ -298,3 +298,74 @@ async def test_favicon_shows_the_worst_status(client, sessionmaker, status, shap
 async def test_favicon_before_any_checks_is_a_hollow_ring(client):
     icon = await client.get("/favicon.svg", auth=DASH)
     assert 'fill="none"' in icon.text
+
+
+# --- signing in ---------------------------------------------------------------
+
+HTML = {"accept": "text/html"}
+
+
+async def test_a_browser_is_sent_to_the_sign_in_page_and_back(client, data):
+    page = await client.get("/sites/1/view?x=1", headers=HTML)
+    assert page.status_code == 303
+    assert page.headers["location"] == "/login?next=/sites/1/view%3Fx%3D1"
+
+    form = await client.get("/login", params={"next": "/sites/1/view"})
+    assert form.status_code == 200
+    assert 'name="password"' in form.text
+
+    wrong = await client.post(
+        "/login", data={"username": "owen", "password": "nope", "next": "/sites/1/view"}
+    )
+    assert wrong.status_code == 401
+    assert "didn't match" in wrong.text
+    assert "tideline_session" not in wrong.headers.get("set-cookie", "")
+
+    right = await client.post(
+        "/login", data={"username": DASH[0], "password": DASH[1], "next": "/sites/1/view"}
+    )
+    assert right.status_code == 303
+    assert right.headers["location"] == "/sites/1/view"
+    cookie = right.headers["set-cookie"]
+    assert "HttpOnly" in cookie
+    assert "SameSite=lax" in cookie
+
+    signed_in = await client.get("/", headers=HTML)  # the client kept the cookie
+    assert signed_in.status_code == 200
+    assert "Sign out" in signed_in.text
+
+    out = await client.get("/logout")
+    assert out.status_code == 303
+    assert (await client.get("/", headers=HTML)).status_code == 303
+
+
+async def test_scripts_still_get_a_401_not_a_redirect(client):
+    assert (await client.get("/")).status_code == 401
+
+
+@pytest.mark.parametrize(
+    "target",
+    ["https://evil.example/", "//evil.example/", "/\\evil.example", "javascript:alert(1)"],
+)
+async def test_sign_in_never_redirects_off_the_site(client, target):
+    right = await client.post(
+        "/login", data={"username": DASH[0], "password": DASH[1], "next": target}
+    )
+    assert right.headers["location"] == "/"
+
+
+def test_session_cookies_cannot_be_forged_or_outlive_the_password():
+    from tideline.api.auth import make_session, valid_session
+
+    settings = Settings(dashboard_password="one")
+    cookie = make_session(settings, now=1_000)
+    assert valid_session(settings, cookie, now=1_001)
+
+    expires, signature = cookie.split(".")
+    assert not valid_session(settings, f"{int(expires) + 999}.{signature}", now=1_001)
+    assert not valid_session(settings, "garbage", now=1_001)
+    assert not valid_session(settings, None, now=1_001)
+    # Expired after 30 days.
+    assert not valid_session(settings, cookie, now=1_000 + 31 * 24 * 3600)
+    # Changing the password signs every browser out.
+    assert not valid_session(Settings(dashboard_password="two"), cookie, now=1_001)

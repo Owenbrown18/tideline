@@ -1,27 +1,37 @@
 """The FastAPI application: JSON endpoints plus a server-rendered dashboard.
 
-Run it with `tideline api`, or in production behind Caddy (M3), which
-terminates HTTPS for status.obwebdesign.ca.
+Run it locally with `tideline api`. In production it runs on AWS Lambda
+(tideline.aws_lambda.web_handler) behind CloudFront, which serves
+status.obwebdesign.ca over HTTPS.
 """
 
+import asyncio
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import text
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tideline import __version__, brand
 from tideline.api import queries, views
-from tideline.api.auth import require_api_token, require_dashboard_user
+from tideline.api.auth import (
+    SESSION_COOKIE,
+    SESSION_SECONDS,
+    make_session,
+    require_api_token,
+    require_dashboard_user,
+    safe_next,
+    valid_login,
+)
 from tideline.api.schemas import (
     CheckOut,
     DnsBaselineOut,
@@ -33,6 +43,7 @@ from tideline.api.schemas import (
 )
 from tideline.config import Settings, get_settings
 from tideline.db.baselines import set_baseline
+from tideline.db.models import CheckResult
 from tideline.db.session import make_engine, make_sessionmaker
 from tideline.observability.logging import configure_logging
 from tideline.reports.monthly import build_report, render_html
@@ -155,7 +166,7 @@ async def _page(
     """Render a dashboard page with what every page needs: the overall state
     (the period in the header), when the last check ran, and the time now."""
     state = await views.overall_state(session)
-    last = await session.scalar(text("SELECT max(started_at) FROM check_results"))
+    last = await session.scalar(select(func.max(CheckResult.started_at)))
     return TEMPLATES.TemplateResponse(
         request,
         template,
@@ -172,7 +183,10 @@ async def _page(
 
 @dashboard.get("/", response_class=HTMLResponse, summary="Dashboard")
 async def dashboard_home(request: Request, session: Session) -> HTMLResponse:
-    return await _page(request, session, "index.html", "overview", o=await views.overview(session))
+    zone = request.app.state.settings.display_timezone
+    return await _page(
+        request, session, "index.html", "overview", o=await views.overview(session, zone)
+    )
 
 
 @dashboard.get("/sites/{site_id}/view", response_class=HTMLResponse, summary="One site")
@@ -204,10 +218,16 @@ async def dashboard_accept_dns(
 
     Browsers send basic-auth credentials automatically, so a form on another
     site could otherwise make Owen's browser press this button (cross-site
-    request forgery). Refuse any request whose Origin is not this site.
+    request forgery). Refuse any request whose Origin is not this site: either
+    the host the request arrived at, or the public address (behind CloudFront
+    the app sees the Lambda's own hostname, not status.obwebdesign.ca).
     """
     origin = request.headers.get("origin") or request.headers.get("referer") or ""
-    if urlparse(origin).netloc != request.url.netloc:
+    ours = {request.url.netloc}
+    public_url: str = request.app.state.settings.public_url
+    if public_url:
+        ours.add(urlparse(public_url).netloc)
+    if urlparse(origin).netloc not in ours:
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="cross-site request refused")
     await _accept_dns(session, site_id)
     return RedirectResponse(f"/sites/{site_id}/view", status_code=status.HTTP_303_SEE_OTHER)
@@ -245,6 +265,58 @@ async def dashboard_report(request: Request, site_id: int, month: str, session: 
     return HTMLResponse(render_html(report))
 
 
+# --- signing in ----------------------------------------------------------------------
+
+signin = APIRouter(include_in_schema=False)
+
+
+@signin.get("/login", response_class=HTMLResponse)
+async def login_page(request: Request, next: str = "/") -> HTMLResponse:
+    return TEMPLATES.TemplateResponse(
+        request,
+        "login.html",
+        {"next": safe_next(next), "error": False, "username": "", "version": __version__},
+    )
+
+
+@signin.post("/login", response_model=None)
+async def login(request: Request) -> Response:
+    # Parsed by hand: a form this small does not need another dependency.
+    fields = {k: v[0] for k, v in parse_qs((await request.body()).decode()).items()}
+    settings: Settings = request.app.state.settings
+    target = safe_next(fields.get("next"))
+    if not valid_login(settings, fields.get("username", ""), fields.get("password", "")):
+        await asyncio.sleep(1)  # a wrong guess costs a second, so guessing is slow
+        return TEMPLATES.TemplateResponse(
+            request,
+            "login.html",
+            {
+                "next": target,
+                "error": True,
+                "username": fields.get("username", ""),
+                "version": __version__,
+            },
+            status_code=status.HTTP_401_UNAUTHORIZED,
+        )
+    response = RedirectResponse(target, status_code=status.HTTP_303_SEE_OTHER)
+    response.set_cookie(
+        SESSION_COOKIE,
+        make_session(settings),
+        max_age=SESSION_SECONDS,
+        httponly=True,  # page scripts cannot read it
+        secure=request.url.scheme == "https",
+        samesite="lax",  # not sent on a form another site submits
+    )
+    return response
+
+
+@signin.get("/logout")
+async def logout() -> RedirectResponse:
+    response = RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
+    response.delete_cookie(SESSION_COOKIE)
+    return response
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
     missing = [name for name in ("api_token", "dashboard_password") if not getattr(settings, name)]
@@ -277,6 +349,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ) from None
         return Health(status="ok", database="ok", version=__version__)
 
+    app.include_router(signin)
     app.include_router(api)
     app.include_router(dashboard)
     return app

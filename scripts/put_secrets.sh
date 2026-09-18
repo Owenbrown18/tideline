@@ -3,7 +3,7 @@
 # SecureStrings. Run once (and again to rotate: a deploy picks up new values).
 #
 # Deliberately not Terraform: values Terraform creates end up in its state file.
-# These are only ever read by the instance at deploy time.
+# The Lambda functions read them when they start (tideline/aws_lambda.py).
 set -euo pipefail
 
 REGION=${AWS_REGION:-ca-central-1}
@@ -32,7 +32,6 @@ ensure() {
   fi
 }
 
-ensure /sitewatch/db_password
 ensure /sitewatch/api_token
 ensure /sitewatch/dashboard_password
 put /sitewatch/dashboard_user "owen"
@@ -40,5 +39,6 @@ put /sitewatch/dashboard_user "owen"
 put /sitewatch/sites_yaml "$(cat "$SITES_FILE")"
 
 echo
+echo "Changes take effect the next time a function starts (within minutes)."
 echo "Read the dashboard password with:"
 echo "  aws ssm get-parameter --name /sitewatch/dashboard_password --with-decryption --query Parameter.Value --output text"
