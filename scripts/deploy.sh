@@ -42,7 +42,10 @@ aws lambda invoke --function-name tideline-run --cli-binary-format raw-in-base64
 cat "$out"; echo
 
 log health
-url=$(cd infra && terraform output -raw dashboard_url)
-code=$(curl -s -o /dev/null -w '%{http_code}' "${url}healthz")
-[ "$code" = 200 ] || { echo "healthz answered $code" >&2; exit 1; }
+# Fixed addresses rather than `terraform output`, so a deploy works from any
+# checkout, including a fresh worktree where Terraform was never initialised.
+for url in "${DASHBOARD_URL:-https://status.obwebdesign.ca/}" "${DEMO_URL:-https://tideline.obwebdesign.ca/}"; do
+  code=$(curl -s -o /dev/null -w '%{http_code}' "${url}healthz")
+  [ "$code" = 200 ] || { echo "${url}healthz answered $code" >&2; exit 1; }
+done
 log done
