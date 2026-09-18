@@ -93,6 +93,7 @@ async def test_all_links_fine_is_ok(make_clients):
 async def test_broken_internal_link_fails(make_clients):
     respx.get(SITE).respond(200, html=page("/menu", "/about"))
     respx.head("https://example.ca/menu").respond(404)
+    respx.get("https://example.ca/menu").respond(404)  # confirmed with a GET
     respx.head("https://example.ca/about").respond(200)
     respx.get("https://example.ca/about").respond(200, html=page())
 
@@ -109,6 +110,7 @@ async def test_broken_external_link_is_only_a_warning(make_clients):
     """Someone else's server going down must not page Owen."""
     respx.get(SITE).respond(200, html=page("https://partner.test/gone"))
     respx.head("https://partner.test/gone").respond(410)
+    respx.get("https://partner.test/gone").respond(410)
 
     result = await links.run({"domain": "example.ca", "url": SITE}, make_clients())
     assert result.status == "warn"
@@ -139,6 +141,7 @@ async def test_the_same_broken_link_on_many_pages_is_reported_once(make_clients)
         respx.head(f"https://example.ca/{path}").respond(200)
         respx.get(f"https://example.ca/{path}").respond(200, html=footer)
     respx.head("https://partner.test/gone").respond(404)
+    respx.get("https://partner.test/gone").respond(404)
 
     result = await links.run({"domain": "example.ca", "url": SITE}, make_clients())
     assert len(result.detail["external_broken"]) == 1
@@ -163,6 +166,29 @@ async def test_head_refused_falls_back_to_get(make_clients):
 
     result = await links.run({"domain": "example.ca", "url": SITE}, make_clients())
     assert result.status == "ok"
+
+
+@respx.mock
+async def test_a_head_404_is_confirmed_with_a_get_before_reporting(make_clients):
+    """Square's checkout links answer 404 to HEAD and 200 to GET. Reporting a
+    working "buy" button as broken is worse than one extra request."""
+    respx.get(SITE).respond(200, html=page("https://square.link/u/abc"))
+    respx.head("https://square.link/u/abc").respond(404)
+    respx.get("https://square.link/u/abc").respond(200)
+
+    result = await links.run({"domain": "example.ca", "url": SITE}, make_clients())
+    assert result.status == "ok"
+    assert result.detail["external_broken"] == []
+
+
+@respx.mock
+async def test_a_link_broken_on_both_methods_is_reported(make_clients):
+    respx.get(SITE).respond(200, html=page("https://partner.test/gone"))
+    respx.head("https://partner.test/gone").respond(404)
+    respx.get("https://partner.test/gone").respond(404)
+
+    result = await links.run({"domain": "example.ca", "url": SITE}, make_clients())
+    assert result.status == "warn"
 
 
 @respx.mock

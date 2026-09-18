@@ -70,17 +70,27 @@ def same_host(url: str, host: str) -> bool:
 
 
 async def _status_of(client: httpx.AsyncClient, url: str) -> tuple[int | None, str | None]:
-    """(status, error). HEAD first, then GET, because some servers refuse HEAD."""
-    for method in ("HEAD", "GET"):
-        try:
-            response = await client.request(
-                method, url, follow_redirects=True, timeout=LINK_TIMEOUT
-            )
-        except httpx.HTTPError as exc:
-            return None, f"{type(exc).__name__}: {exc}"[:200]
-        if response.status_code not in (405, 501) or method == "GET":
-            return response.status_code, None
-    return None, "unreachable"
+    """(status, error), using HEAD where possible.
+
+    HEAD is cheap and polite, but plenty of servers handle it badly: some answer
+    405 or 501, and Square's checkout links answer 404 to HEAD and 200 to GET
+    (measured 2026-09-17, after Sitewatch reported a working "buy" button as
+    broken). So any answer that would be reported as a problem is confirmed with
+    a real GET before it counts.
+    """
+    try:
+        response = await client.head(url, follow_redirects=True, timeout=LINK_TIMEOUT)
+    except httpx.HTTPError:
+        response = None
+
+    if response is not None and response.status_code < 400:
+        return response.status_code, None
+
+    try:
+        confirm = await client.get(url, follow_redirects=True, timeout=LINK_TIMEOUT)
+    except httpx.HTTPError as exc:
+        return None, f"{type(exc).__name__}: {exc}"[:200]
+    return confirm.status_code, None
 
 
 async def run(config: Config, clients: Clients) -> Result | None:

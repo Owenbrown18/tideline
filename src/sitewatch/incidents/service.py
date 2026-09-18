@@ -63,6 +63,11 @@ async def process_result(
     decision = decide(policy, state, recent, now)
 
     if decision.action is Action.NONE:
+        # Nothing to send, but keep the incident's description current: the
+        # reason a check is failing can change while it stays failing (a contact
+        # page that 404s, then a form endpoint that 404s).
+        if incident is not None and recent and recent[0] != "ok":
+            incident.summary = summary
         return decision
 
     if decision.action is Action.OPEN:
