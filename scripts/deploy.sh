@@ -21,7 +21,7 @@ log() { echo "{\"event\":\"deploy\",\"step\":\"$1\",\"tag\":\"$TAG\"}"; }
 log build
 aws ecr get-login-password | docker login --username AWS --password-stdin "$REGISTRY" >/dev/null
 # --provenance=false: Lambda accepts a plain image, not a multi-part image index.
-docker buildx build --platform linux/arm64 --provenance=false -t "$REPO:$TAG" --push . >/dev/null
+docker buildx build --quiet --platform linux/arm64 --provenance=false -t "$REPO:$TAG" --push . >/dev/null
 
 for fn in tideline-run tideline-web; do
   log "update_$fn"

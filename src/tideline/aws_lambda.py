@@ -5,8 +5,9 @@ One container image, two functions (infra/lambda.tf):
 - `run_handler`: started by EventBridge Scheduler on the 1st and 15th. Downloads
   the database from S3, migrates it, loads the site list, checks every site,
   uploads the database back. It can also be invoked by hand with a task:
-  {"task": "run"} (the default), {"task": "migrate"}, or
-  {"task": "report", "month": "2026-09"} to resend a month's reports.
+  {"task": "run"} (the default; "kind" and "site" narrow it, e.g.
+  {"task": "run", "kind": "dns", "site": "davesbakery.ca"}), {"task": "migrate"},
+  or {"task": "report", "month": "2026-09"} to resend a month's reports.
 - `web_handler`: the dashboard and API, behind CloudFront. Mangum translates
   each Lambda request into an ordinary ASGI request for the FastAPI app.
 
@@ -80,7 +81,9 @@ def run_handler(event: dict[str, Any] | None, context: Any) -> dict[str, Any]:
 
         from tideline.worker.run import run
 
-        report = asyncio.run(run(settings, sites_file=SITES_PATH))
+        report = asyncio.run(
+            run(settings, sites_file=SITES_PATH, kind=event.get("kind"), domain=event.get("site"))
+        )
         result |= asdict(report)
     elif task == "report":
         result["sent"] = asyncio.run(_send_reports(settings, str(event["month"])))
@@ -142,17 +145,23 @@ def _web_app() -> tuple[Any, S3Database]:
     return _web["handler"], _web["store"]
 
 
-READ_ONLY = {"GET", "HEAD", "OPTIONS"}
+def _fingerprint(path: Path) -> tuple[int, int] | None:
+    """Size and modification time: enough to tell whether SQLite wrote to the file."""
+    try:
+        stat = path.stat()
+    except FileNotFoundError:
+        return None
+    return stat.st_size, stat.st_mtime_ns
 
 
 def web_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     handler, store = _web_app()
     store.download()  # only transfers anything when the file changed
+    before = _fingerprint(store.path)
     response: dict[str, Any] = handler(event, context)
 
-    method = event.get("requestContext", {}).get("http", {}).get("method", "GET")
-    if method not in READ_ONLY and response.get("statusCode", 500) < 400:
-        # A write (accepting a DNS change): save it back to S3.
+    if _fingerprint(store.path) != before:
+        # The request wrote to the database (accepting a DNS change): save it back.
         try:
             store.upload()
         except StaleCopy:

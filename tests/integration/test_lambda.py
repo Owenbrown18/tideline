@@ -112,6 +112,11 @@ def test_a_scheduled_run_checks_every_site_and_saves_to_s3(aws):
     assert head["ContentLength"] > 0
 
 
+def test_a_run_can_be_narrowed(aws):
+    result = aws_lambda.run_handler({"task": "run", "kind": "content"}, None)
+    assert result["checks"] == 1
+
+
 def test_the_dashboard_reads_what_the_run_saved(aws, tmp_path):
     aws_lambda.run_handler({}, None)
     # The dashboard runs in its own container, with its own copy of the file.
@@ -122,6 +127,15 @@ def test_the_dashboard_reads_what_the_run_saved(aws, tmp_path):
     assert page["statusCode"] == 200
     assert "Lambda Bakery" in page["body"]
     assert "Up at" in page["body"]
+
+
+def test_reading_pages_never_uploads_the_database(aws):
+    aws_lambda.run_handler({}, None)
+    s3 = boto3.client("s3", region_name=REGION)
+    before = s3.head_object(Bucket=BUCKET, Key="tideline.db")["ETag"]
+    for path in ("/", "/incidents/view", "/reports"):
+        assert aws_lambda.web_handler(web_event(path), None)["statusCode"] == 200
+    assert s3.head_object(Bucket=BUCKET, Key="tideline.db")["ETag"] == before
 
 
 def test_migrate_and_report_tasks(aws):
@@ -136,3 +150,21 @@ def test_missing_secrets_stop_the_function(aws):
     boto3.client("ssm", region_name=REGION).delete_parameter(Name=PREFIX + "dashboard_password")
     with pytest.raises(RuntimeError, match="missing SSM parameters"):
         aws_lambda.run_handler({}, None)
+
+
+def test_a_request_that_writes_is_saved_back_to_s3(aws):
+    import sqlite3
+
+    aws_lambda.run_handler({}, None)
+    s3 = boto3.client("s3", region_name=REGION)
+    before = s3.head_object(Bucket=BUCKET, Key="tideline.db")["ETag"]
+    _, store = aws_lambda._web_app()
+
+    def writes(event, context):  # stands in for the "accept DNS change" button
+        with sqlite3.connect(store.path) as db:
+            db.execute("UPDATE sites SET name = 'Renamed Bakery'")
+        return {"statusCode": 303, "headers": {}, "body": ""}
+
+    aws_lambda._web["handler"] = writes
+    aws_lambda.web_handler(web_event("/", method="POST"), None)
+    assert s3.head_object(Bucket=BUCKET, Key="tideline.db")["ETag"] != before

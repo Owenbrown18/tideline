@@ -1,6 +1,6 @@
 """Fetch a page once and share it between the uptime and content checks.
 
-Both checks run every 5 minutes against the same URL. README section 2 says the
+Both checks run in the same run against the same URL. README section 2 says the
 content check uses "the same request as #1", so the fetcher remembers each
 page for a short time: whichever check runs first makes the request, and the
 other reuses it. The uptime retry asks for `fresh=True` to bypass that memory.

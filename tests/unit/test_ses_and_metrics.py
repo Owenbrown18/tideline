@@ -117,10 +117,10 @@ def test_emf_document_shape():
 
 
 def test_emit_writes_one_json_line(capsys):
-    emit({"worker_heartbeat": 1, "open_incidents": 3})
+    emit({"checks_run": 86, "open_incidents": 3})
     line = capsys.readouterr().out.strip()
     parsed = json.loads(line)
-    assert parsed["worker_heartbeat"] == 1
+    assert parsed["checks_run"] == 86
     assert parsed["open_incidents"] == 3
     assert parsed["event"] == "metrics"
 

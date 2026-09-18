@@ -1,16 +1,11 @@
 # Copy to sites.yaml (git-ignored) and list the real sites there.
-# Load it with:  uv run tideline seed sites.yaml   (or `docker compose up`, which seeds on start)
+# Load it with:  uv run tideline seed sites.yaml   (production reads it from SSM at every run)
 #
 # Seeding is idempotent: run it again after any edit. Sites removed from the file
 # are marked inactive (history kept), not deleted.
 
-# Optional: override README section 2 intervals (seconds) for every site.
-defaults:
-  intervals:
-    uptime: 300      # 5 min
-    content: 300     # 5 min, shares the uptime request
-    tls: 21600       # 6 h
-    domain: 86400    # daily
+# Every enabled check runs once per run (the 1st and 15th). `intervals`, from
+# version 1's every-5-minutes schedule, is still accepted but no longer used.
 
 sites:
   - name: Example Bakery
@@ -25,8 +20,6 @@ sites:
     domain: example.com
     expected_text: "Example Builder Co"
     # Everything below is optional.
-    intervals:
-      uptime: 120                         # this site only
     checks:
       domain: false                       # switch a check kind off for this site
     spam_ignore: ["payday loans"]         # a spam marker that is legitimate on this site

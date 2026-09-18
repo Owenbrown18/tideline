@@ -2,22 +2,22 @@
 
 A normal metric needs an API call (`PutMetricData`), which means credentials, a
 network round trip and a failure mode. EMF avoids all three: the app writes a
-specially shaped JSON line to stdout, Docker ships it to CloudWatch Logs, and
+specially shaped JSON line to stdout, Lambda ships it to CloudWatch Logs, and
 CloudWatch turns it into a metric on ingestion. The line is still a readable log
 line, so nothing is lost locally, where there is no CloudWatch at all.
 
-Metrics published (namespace `Tideline`):
+Metrics published (namespace `Tideline`), once at the end of each run:
 
-| Metric              | Where from                                    |
+| Metric              | What it counts                                |
 |---------------------|-----------------------------------------------|
-| `worker_heartbeat`  | the worker, every cycle: the "is it alive" signal |
-| `checks_run`        | checks completed since the last heartbeat     |
-| `check_failures`    | non-ok results since the last heartbeat       |
-| `open_incidents`    | count from the database at each heartbeat     |
+| `checks_run`        | checks completed in the run                   |
+| `check_failures`    | non-ok results in the run                     |
+| `check_errors`      | checks that crashed (a bug, not an outage)    |
+| `open_incidents`    | open incidents after the run                  |
 | `check_duration_ms` | one value per check, aggregated by CloudWatch |
 
-Deliberately no per-site dimension. CloudWatch charges per metric per month,
-and 11 sites times 5 metrics would cost more than the server. Per-site detail
+Deliberately no per-site dimension. CloudWatch charges per metric per month
+beyond the first 10, and 11 sites times 5 metrics would be 55. Per-site detail
 lives in the logs, where Logs Insights can query it for nothing.
 """
 
@@ -29,12 +29,10 @@ from typing import Any
 
 log = logging.getLogger("tideline.metrics")
 
-# The alarms and the instance's IAM policy use the same name (infra/alarms.tf,
-# infra/iam_instance.tf): change all three together.
+# infra/alarms.tf reads the same namespace for its dashboard: change both together.
 NAMESPACE = "Tideline"
 
 UNITS = {
-    "worker_heartbeat": "Count",
     "checks_run": "Count",
     "check_failures": "Count",
     "checks_skipped": "Count",
