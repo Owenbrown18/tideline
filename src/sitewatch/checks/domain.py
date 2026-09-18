@@ -22,6 +22,7 @@ from typing import Any
 
 import httpx
 
+from sitewatch.brand import human_date
 from sitewatch.checks.base import Clients, Config, Result
 
 RDAP_TIMEOUT_SECONDS = 12.0
@@ -114,23 +115,19 @@ def evaluate(
         "statuses": info.statuses,
     }
     if info.lapsed_reason:
-        return Result("fail", f"{domain} is {info.lapsed_reason}", detail)
+        return Result("fail", f"The domain is {info.lapsed_reason}", detail)
     if info.expiry is None:
-        return Result("ok", f"{domain} is registered (registry publishes no expiry date)", detail)
+        return Result("ok", "Registered (the registry publishes no expiry date)", detail)
 
     days_left = (info.expiry - now).days
-    expiry = info.expiry.date().isoformat()
+    expiry = human_date(info.expiry)
     if days_left < 0:
-        return Result("fail", f"{domain} registration expired on {expiry}", detail)
+        return Result("fail", f"Registration expired on {expiry}", detail)
     if days_left < critical_days:
-        return Result(
-            "fail", f"{domain} registration expires in {days_left} days ({expiry})", detail
-        )
+        return Result("fail", f"Registration expires in {days_left} days, on {expiry}", detail)
     if days_left < warn_days:
-        return Result(
-            "warn", f"{domain} registration expires in {days_left} days ({expiry})", detail
-        )
-    return Result("ok", f"{domain} registered until {expiry} ({days_left} days)", detail)
+        return Result("warn", f"Registration expires in {days_left} days, on {expiry}", detail)
+    return Result("ok", f"Registered until {expiry} ({days_left} days)", detail)
 
 
 async def run(config: Config, clients: Clients) -> Result | None:
@@ -149,7 +146,7 @@ async def run(config: Config, clients: Clients) -> Result | None:
         # is alarming, but RDAP gaps exist, so it is a warning, not critical.
         return Result(
             "warn",
-            f"RDAP has no registration record for {domain}",
+            "No registration record found (RDAP 404)",
             {"domain": domain, "rdap_status": 404},
         )
     if response.status_code >= 400:

@@ -69,7 +69,7 @@ async def run(config: Config, clients: Clients) -> Result | None:
     except DomainMissing as exc:
         return Result(
             "fail",
-            f"DNS for {domain} is broken: {exc}",
+            f"DNS is broken: {exc}",
             {"domain": domain, "error": str(exc)},
         )
     except DnsUnavailable:
@@ -80,15 +80,15 @@ async def run(config: Config, clients: Clients) -> Result | None:
 
     if baseline is None:
         detail["baseline_captured"] = True
-        return Result("ok", f"DNS baseline captured for {domain} ({record_count} records)", detail)
+        return Result("ok", f"Baseline captured ({record_count} records)", detail)
 
     changes = diff_records(baseline, observed)
     if not changes:
-        return Result("ok", f"DNS matches the baseline ({record_count} records)", detail)
+        return Result("ok", f"Matches the accepted baseline ({record_count} records)", detail)
 
     detail["baseline"] = baseline
     detail["changes"] = changes
-    summary = f"DNS for {domain} changed: " + "; ".join(changes[:4])
+    summary = "DNS changed: " + "; ".join(changes[:4])
     if len(changes) > 4:
         summary += f" (and {len(changes) - 4} more)"
     return Result("fail", summary, detail)

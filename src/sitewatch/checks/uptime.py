@@ -38,8 +38,8 @@ async def run(config: Config, clients: Clients) -> Result:
     retry = await clients.pages.fetch(url, fresh=True)
     if retry.ok:
         detail = _detail(retry) | {"retried": True, "first_attempt": _describe(first)}
-        summary = f"HTTP {retry.status_code} in {retry.total_ms} ms (after a retry)"
+        summary = f"HTTP {retry.status_code} in {retry.total_ms} ms, after one retry"
         return Result("ok", summary, detail)
 
     detail = _detail(retry) | {"retried": True, "first_attempt": _describe(first)}
-    return Result("fail", f"{url} is down: {_describe(retry)}", detail)
+    return Result("fail", f"The site is down ({_describe(retry)})", detail)

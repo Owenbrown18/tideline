@@ -91,9 +91,9 @@ async def run(config: Config, clients: Clients) -> Result | None:
 
     problems = []
     if spam:
-        problems.append("spam markers found: " + ", ".join(m["marker"] for m in spam))
+        problems.append("Spam found on the page: " + ", ".join(m["marker"] for m in spam))
     if not expected_found:
-        problems.append(f'expected text "{expected}" is missing')
+        problems.append(f'The page no longer shows "{expected}"')
     if problems:
-        return Result("fail", f"{url}: " + "; ".join(problems), detail)
-    return Result("ok", "expected text present, no spam markers", detail)
+        return Result("fail", ". ".join(problems), detail)
+    return Result("ok", "Business name present, no spam", detail)

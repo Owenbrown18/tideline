@@ -13,6 +13,7 @@ import asyncio
 import ssl
 from datetime import UTC, datetime
 
+from sitewatch.brand import human_date
 from sitewatch.checks.base import Clients, Config, Result, Status
 
 CONNECT_TIMEOUT_SECONDS = 10.0
@@ -28,14 +29,14 @@ def evaluate_expiry(
 ) -> tuple[Status, str]:
     """(status, summary) for a certificate expiring at `not_after`."""
     days_left = (not_after - now).total_seconds() / 86400
-    expiry = not_after.strftime("%Y-%m-%d")
+    expiry = human_date(not_after)
     if days_left < 0:
-        return "fail", f"certificate expired on {expiry}"
+        return "fail", f"Certificate expired on {expiry}"
     if days_left < critical_days:
-        return "fail", f"certificate expires in {int(days_left)} days ({expiry})"
+        return "fail", f"Certificate expires in {int(days_left)} days, on {expiry}"
     if days_left < warn_days:
-        return "warn", f"certificate expires in {int(days_left)} days ({expiry})"
-    return "ok", f"certificate valid for {int(days_left)} more days ({expiry})"
+        return "warn", f"Certificate expires in {int(days_left)} days, on {expiry}"
+    return "ok", f"Valid for {int(days_left)} more days, until {expiry}"
 
 
 async def run(config: Config, clients: Clients) -> Result | None:
@@ -54,7 +55,7 @@ async def run(config: Config, clients: Clients) -> Result | None:
         reason = exc.verify_message or str(exc)
         return Result(
             "fail",
-            f"certificate for {hostname} is invalid: {reason}",
+            f"Invalid certificate for {hostname}: {reason}",
             {"hostname": hostname, "valid": False, "error": reason},
         )
     except (TimeoutError, OSError):

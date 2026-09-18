@@ -56,14 +56,14 @@ async def test_first_run_captures_the_baseline(make_clients):
     assert result.status == "ok"
     assert result.detail["baseline_captured"] is True
     assert result.detail["records"] == BASELINE
-    assert "baseline captured" in result.summary
+    assert "Baseline captured" in result.summary
 
 
 async def test_unchanged_dns_is_ok(make_clients):
     clients = make_clients(resolver=resolver_from(BASELINE))
     result = await dns_drift.run({"domain": "example.ca", "baseline": BASELINE}, clients)
     assert result.status == "ok"
-    assert "matches the baseline" in result.summary
+    assert "Matches the accepted baseline" in result.summary
     assert "baseline_captured" not in result.detail
 
 
@@ -207,7 +207,7 @@ async def test_missing_spf_is_a_warning_not_a_failure(make_clients):
     clients = clients_for(make_clients, [], ["v=DMARC1; p=none"])
     result = await email_auth.run({"domain": "example.ca"}, clients)
     assert result.status == "warn"
-    assert "no SPF record" in result.summary
+    assert "No SPF record" in result.summary
 
 
 async def test_two_spf_records_fail_because_mail_is_breaking_now(make_clients):
@@ -225,7 +225,7 @@ async def test_missing_dmarc_is_a_warning(make_clients):
     clients = clients_for(make_clients, ["v=spf1 -all"], [])
     result = await email_auth.run({"domain": "example.ca"}, clients)
     assert result.status == "warn"
-    assert "no DMARC record" in result.summary
+    assert "No DMARC record" in result.summary
 
 
 async def test_breaking_and_gap_problems_together_are_a_failure(make_clients):
@@ -236,7 +236,7 @@ async def test_breaking_and_gap_problems_together_are_a_failure(make_clients):
     result = await email_auth.run({"domain": "example.ca"}, clients)
     assert result.status == "fail"
     assert "2 SPF records" in result.summary
-    assert "no DMARC record" in result.summary
+    assert "No DMARC record" in result.summary
 
 
 async def test_nxdomain_on_dmarc_subdomain_means_no_dmarc(make_clients):
@@ -252,7 +252,7 @@ async def test_nxdomain_on_dmarc_subdomain_means_no_dmarc(make_clients):
     clients = make_clients(resolver=DmarcMissing({("example.ca", "TXT"): ["v=spf1 -all"]}))
     result = await email_auth.run({"domain": "example.ca"}, clients)
     assert result.status == "warn"
-    assert result.summary == "example.ca: no DMARC record"
+    assert result.summary == "No DMARC record"
     assert result.detail["spf_records"] == ["v=spf1 -all"]
 
 

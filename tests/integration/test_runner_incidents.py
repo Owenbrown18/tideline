@@ -187,7 +187,7 @@ async def test_content_failure_opens_immediately(sessionmaker, runner, notifier,
     result = await tick(runner, clock, ids["content"])
     assert result.status == "fail"
     [incident] = await incidents(sessionmaker)
-    assert "expected text" in incident.summary
+    assert incident.summary == 'The page no longer shows "Fake Bakery"'
     assert notifier.sent[0].check_kind == "content"
 
 

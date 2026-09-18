@@ -145,7 +145,7 @@ async def test_the_same_broken_link_on_many_pages_is_reported_once(make_clients)
 
     result = await links.run({"domain": "example.ca", "url": SITE}, make_clients())
     assert len(result.detail["external_broken"]) == 1
-    assert "1 broken link" in result.summary
+    assert result.summary == "Broken link to another site: partner.test/gone returns 404"
 
 
 @respx.mock
@@ -280,7 +280,7 @@ async def test_missing_form_fails(make_clients):
     respx.get("https://example.ca/contact").respond(200, html="<h1>Contact</h1><p>Call us.</p>")
     result = await form.run(CONFIGURED, make_clients())
     assert result.status == "fail"
-    assert "no contact form" in result.summary
+    assert "No contact form" in result.summary
 
 
 @respx.mock
@@ -300,7 +300,7 @@ async def test_dead_endpoint_fails(make_clients):
 
     result = await form.run(CONFIGURED, make_clients())
     assert result.status == "fail"
-    assert "returns HTTP 404" in result.summary
+    assert "which returns 404" in result.summary
 
 
 @respx.mock
@@ -322,7 +322,7 @@ async def test_unreachable_endpoint_fails(make_clients):
 
     result = await form.run(CONFIGURED, make_clients())
     assert result.status == "fail"
-    assert "unreachable" in result.summary
+    assert "does not answer" in result.summary
 
 
 @respx.mock
@@ -379,7 +379,7 @@ async def test_no_form_anywhere_fails(make_clients):
 
     result = await form.run({"domain": "example.ca"}, make_clients())
     assert result.status == "fail"
-    assert "no contact form found" in result.summary
+    assert "No contact form found" in result.summary
 
 
 def test_contact_candidates_prefer_paths_then_text_and_stay_on_the_site():

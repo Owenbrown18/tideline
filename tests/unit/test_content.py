@@ -39,7 +39,7 @@ async def test_missing_expected_text_fails(make_clients):
     respx.get(URL).respond(200, html="<h1>Account suspended</h1>")
     result = await content.run(config(), make_clients())
     assert result.status == "fail"
-    assert "is missing" in result.summary
+    assert "no longer shows" in result.summary
 
 
 @respx.mock
@@ -53,7 +53,7 @@ async def test_hidden_spam_links_fail(make_clients):
     assert result.status == "fail"
     markers = {m["marker"] for m in result.detail["spam_matches"]}
     assert markers == {"viagra", "slot gambling"}
-    assert "spam markers found" in result.summary
+    assert "Spam found on the page" in result.summary
 
 
 @respx.mock

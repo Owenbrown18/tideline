@@ -21,6 +21,7 @@ from urllib.parse import urljoin, urlparse
 
 import httpx
 
+from sitewatch.brand import short_url
 from sitewatch.checks.base import Clients, Config, Result
 
 FORM_TIMEOUT = 10.0
@@ -131,7 +132,7 @@ async def run(config: Config, clients: Clients) -> Result | None:
         if page.status_code is not None and page.status_code >= 400:
             return Result(
                 "fail",
-                f"the contact page {configured} returns HTTP {page.status_code}",
+                f"The contact page {short_url(configured)} returns HTTP {page.status_code}",
                 {"contact_url": configured, "status_code": page.status_code},
             )
         if page.body is None:
@@ -173,11 +174,12 @@ async def run(config: Config, clients: Clients) -> Result | None:
     }
 
     if not contact_forms:
-        where = configured or f"{len(searched)} page(s) starting at {home_url}"
+        pages = "page" if len(searched) == 1 else "pages"
+        where = short_url(configured) if configured else f"{len(searched)} {pages} searched"
         return Result(
             "fail",
-            f"no contact form found on {where}"
-            + (f" ({len(forms)} other form(s) seen)" if forms else ""),
+            f"No contact form found ({where})"
+            + (f"; {len(forms)} other form{'' if len(forms) == 1 else 's'} seen" if forms else ""),
             detail,
         )
 
@@ -190,7 +192,7 @@ async def run(config: Config, clients: Clients) -> Result | None:
         detail["endpoint"] = None
         return Result(
             "ok",
-            f"contact form present on {page_url} (submitted by the page itself)",
+            "Contact form present (the page submits it itself)",
             detail,
         )
 
@@ -200,16 +202,11 @@ async def run(config: Config, clients: Clients) -> Result | None:
     detail["endpoint_status"] = status
     detail["endpoint_error"] = error
 
-    host = urlparse(endpoint).netloc
+    site_host = urlparse(page_url).netloc
+    target = short_url(endpoint, site_host)
     if error is not None:
-        return Result("fail", f"the form endpoint {host} is unreachable: {error}", detail)
-    if status in ENDPOINT_MISSING:
-        return Result("fail", f"the form endpoint {endpoint} returns HTTP {status}", detail)
-    if status is not None and status >= 500:
-        return Result("fail", f"the form endpoint {host} returns HTTP {status}", detail)
+        return Result("fail", f"The form posts to {target}, which does not answer", detail)
+    if status in ENDPOINT_MISSING or (status is not None and status >= 500):
+        return Result("fail", f"The form posts to {target}, which returns {status}", detail)
 
-    return Result(
-        "ok",
-        f"contact form present and its endpoint ({host}) answers HTTP {status}",
-        detail,
-    )
+    return Result("ok", f"Contact form present, posting to {target} (answers {status})", detail)

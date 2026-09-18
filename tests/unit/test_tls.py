@@ -91,7 +91,7 @@ async def test_untrusted_certificate_fails(make_clients, client_context):
     stranger = trustme.CA().issue_cert("example.ca")  # signed by a CA the client does not trust
     result = await run_against(stranger, make_clients, client_context)
     assert result.status == "fail"
-    assert "invalid" in result.summary
+    assert "Invalid certificate" in result.summary
 
 
 async def test_expired_certificate_fails(ca, make_clients, client_context):

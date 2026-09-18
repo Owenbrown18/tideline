@@ -81,7 +81,7 @@ async def run(config: Config, clients: Clients) -> Result | None:
         apex_txt = await clients.resolver.records(domain, "TXT")
     except DomainMissing as exc:
         # The domain itself is gone, which is worse than a missing DMARC record.
-        return Result("fail", f"email authentication for {domain}: {exc}", {"domain": domain})
+        return Result("fail", f"The domain does not resolve: {exc}", {"domain": domain})
     except DnsUnavailable:
         return None
 
@@ -119,7 +119,7 @@ async def run(config: Config, clients: Clients) -> Result | None:
     gaps: list[str] = []
 
     if not spf:
-        gaps.append("no SPF record, so anyone can send mail as this domain")
+        gaps.append("No SPF record, so anyone can send mail as this domain")
     elif len(spf) > 1:
         breaking.append(f"{len(spf)} SPF records (there must be exactly one)")
     else:
@@ -129,14 +129,17 @@ async def run(config: Config, clients: Clients) -> Result | None:
             breaking.append(f"SPF needs {lookups} DNS lookups, over the limit of {MAX_SPF_LOOKUPS}")
 
     if dmarc is None:
-        gaps.append("no DMARC record")
+        gaps.append("No DMARC record")
 
     if breaking:
-        return Result("fail", f"{domain}: " + "; ".join(breaking + gaps), detail)
+        return Result("fail", ". ".join(breaking + gaps), detail)
     if gaps:
-        return Result("warn", f"{domain}: " + "; ".join(gaps), detail)
+        return Result("warn", ". ".join(gaps), detail)
 
+    policy = detail["dmarc_policy"]
     summary = f"SPF valid ({detail.get('spf_lookups', 0)} lookups), DMARC present"
-    if detail["dmarc_policy"] == "none":
+    if policy in ("quarantine", "reject"):
+        summary += f" and set to {policy}"
+    elif policy == "none":
         summary += ", policy p=none (monitoring only)"
     return Result("ok", summary, detail)

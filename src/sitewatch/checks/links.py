@@ -24,6 +24,7 @@ from urllib.parse import urldefrag, urljoin, urlparse
 
 import httpx
 
+from sitewatch.brand import short_url
 from sitewatch.checks.base import Clients, Config, Result
 
 # What counts as broken.
@@ -91,6 +92,24 @@ async def _status_of(client: httpx.AsyncClient, url: str) -> tuple[int | None, s
     except httpx.HTTPError as exc:
         return None, f"{type(exc).__name__}: {exc}"[:200]
     return confirm.status_code, None
+
+
+def describe_broken(broken: list[dict[str, Any]], host: str, internal: bool) -> str:
+    """One broken link: "Broken link: /testimonials returns 404".
+    Several: "3 broken links: /a (404), /b (404) and 1 more"."""
+
+    def what(b: dict[str, Any]) -> str:
+        return str(b["status"]) if b["status"] is not None else "no answer"
+
+    if len(broken) == 1:
+        b = broken[0]
+        verb = f"returns {what(b)}" if b["status"] is not None else "does not answer"
+        where = "" if internal else " to another site"
+        return f"Broken link{where}: {short_url(b['url'], host)} {verb}"
+    where = "" if internal else " to other sites"
+    first = ", ".join(f"{short_url(b['url'], host)} ({what(b)})" for b in broken[:3])
+    extra = f" and {len(broken) - 3} more" if len(broken) > 3 else ""
+    return f"{len(broken)} broken links{where}: {first}{extra}"
 
 
 async def run(config: Config, clients: Clients) -> Result | None:
@@ -164,25 +183,9 @@ async def run(config: Config, clients: Clients) -> Result | None:
     }
 
     if internal_broken:
-        first_few = ", ".join(
-            f"{b['url']} ({b['status'] or b['error']})" for b in internal_broken[:3]
-        )
-        extra = f" and {len(internal_broken) - 3} more" if len(internal_broken) > 3 else ""
-        return Result(
-            "fail",
-            f"{len(internal_broken)} broken internal link(s): {first_few}{extra}",
-            detail,
-        )
+        return Result("fail", describe_broken(internal_broken, host, internal=True), detail)
     if external_broken:
-        first_few = ", ".join(
-            f"{b['url']} ({b['status'] or b['error']})" for b in external_broken[:3]
-        )
-        extra = f" and {len(external_broken) - 3} more" if len(external_broken) > 3 else ""
-        return Result(
-            "warn",
-            f"{len(external_broken)} broken link(s) to other sites: {first_few}{extra}",
-            detail,
-        )
+        return Result("warn", describe_broken(external_broken, host, internal=False), detail)
     return Result(
         "ok",
         f"{len(checked)} links checked across {len(seen_pages)} pages, none broken",
