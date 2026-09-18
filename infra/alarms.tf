@@ -34,6 +34,24 @@ resource "aws_cloudwatch_metric_alarm" "run_failed" {
   alarm_actions       = [aws_sns_topic.alarms.arn]
 }
 
+# A throttled run never starts, and raises no error: the account has 10
+# concurrent executions, shared with the dashboard, so a flood of dashboard
+# requests at 07:00 on the 1st or 15th could crowd it out (security review).
+resource "aws_cloudwatch_metric_alarm" "run_throttled" {
+  alarm_name          = "tideline-run-throttled"
+  alarm_description   = "The scheduled Tideline run was throttled and may not have run. Rerun it (docs/runbook.md)."
+  namespace           = "AWS/Lambda"
+  metric_name         = "Throttles"
+  dimensions          = { FunctionName = aws_lambda_function.run.function_name }
+  statistic           = "Sum"
+  period              = 3600
+  evaluation_periods  = 1
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  threshold           = 1
+  treat_missing_data  = "notBreaching"
+  alarm_actions       = [aws_sns_topic.alarms.arn]
+}
+
 resource "aws_cloudwatch_dashboard" "main" {
   dashboard_name = "tideline"
   dashboard_body = jsonencode({

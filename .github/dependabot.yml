@@ -1,0 +1,13 @@
+# Pinned versions (actions by commit, images by digest, Python by uv.lock) only
+# stay safe if they are kept current. Dependabot opens a pull request each week.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly }
+  - package-ecosystem: docker
+    directory: /
+    schedule: { interval: weekly }
+  - package-ecosystem: uv
+    directory: /
+    schedule: { interval: weekly }

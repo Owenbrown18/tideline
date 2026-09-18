@@ -100,6 +100,13 @@ data "aws_iam_policy_document" "run" {
       variable = "ses:Recipients"
       values   = [var.alert_email]
     }
+    # "ForAllValues" is also true when the key is missing altogether, so
+    # require it to be present (security review, 2026-09-18).
+    condition {
+      test     = "Null"
+      variable = "ses:Recipients"
+      values   = ["false"]
+    }
   }
 }
 
@@ -133,6 +140,15 @@ resource "aws_lambda_function" "run" {
   lifecycle {
     ignore_changes = [image_uri] # deploys update the image, not Terraform
   }
+}
+
+# A failed run is not retried by Lambda: a retry starts again from the database
+# as it was saved, and would repeat whatever emails the first attempt sent. The
+# "run failed" alarm tells Owen instead, and he reruns it (docs/runbook.md).
+resource "aws_lambda_function_event_invoke_config" "run" {
+  function_name                = aws_lambda_function.run.function_name
+  maximum_retry_attempts       = 0
+  maximum_event_age_in_seconds = 3600
 }
 
 # --- the schedule -----------------------------------------------------------------

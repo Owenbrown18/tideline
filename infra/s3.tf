@@ -95,3 +95,19 @@ resource "aws_s3_bucket_lifecycle_configuration" "data" {
     }
   }
 }
+
+# Nothing may reach the bucket over plain HTTP (security review, 2026-09-18).
+resource "aws_s3_bucket_policy" "data" {
+  bucket = aws_s3_bucket.data.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid       = "HttpsOnly"
+      Effect    = "Deny"
+      Principal = "*"
+      Action    = "s3:*"
+      Resource  = [aws_s3_bucket.data.arn, "${aws_s3_bucket.data.arn}/*"]
+      Condition = { Bool = { "aws:SecureTransport" = "false" } }
+    }]
+  })
+}
