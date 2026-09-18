@@ -226,3 +226,28 @@ Tear everything down (this deletes the database):
 ```bash
 cd infra && terraform destroy
 ```
+
+## Monthly reports
+Built from the daily rollups, so they still work after raw results are purged.
+
+```bash
+aws ssm start-session --target i-010dc8609621b4d18
+sudo -i && cd /opt/sitewatch
+compose() { docker compose --env-file compose.env -f compose.prod.yaml "$@"; }
+
+compose run --rm --no-deps api sitewatch report --month 2026-09            # print
+compose run --rm --no-deps api sitewatch report --month 2026-09 --email    # email Owen
+compose run --rm --no-deps api sitewatch report --month 2026-09 --site davesbakery.ca --email
+```
+
+They are also pages: `https://status.obwebdesign.ca/reports/<site_id>/2026-09`
+(dashboard login).
+
+Rollups run automatically at 00:20 UTC. To rebuild a day by hand:
+
+```bash
+compose run --rm --no-deps api sitewatch rollup --day 2026-09-17
+```
+
+Raw `check_results` older than 90 days are deleted by the same job. The rollups
+are kept forever.

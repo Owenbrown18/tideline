@@ -22,20 +22,25 @@ resource "aws_sns_topic_subscription" "owen" {
 
 resource "aws_cloudwatch_metric_alarm" "worker_heartbeat" {
   alarm_name        = "sitewatch-worker-heartbeat-missing"
-  alarm_description = "The Sitewatch worker has not published a heartbeat for 10 minutes: checks are not running."
+  alarm_description = "The Sitewatch worker has stopped publishing heartbeats: checks are not running. Detection takes about 25 minutes in practice."
 
-  # The worker publishes a heartbeat every 60 s, so this watches ten one-minute
-  # periods rather than three five-minute ones. Measured on 2026-09-17: with
-  # 3 x 5 minutes, a stopped worker took 25 minutes to alarm, because CloudWatch
-  # waits past the evaluation window for late data before deciding that missing
-  # data is really missing. Ten 1-minute periods gives the same tolerance for a
-  # single late heartbeat with a much shorter time to detection.
+  # Measured, not guessed (2026-09-17, two tests on the live instance):
+  #   3 x 5-minute periods  -> alarmed 25 minutes after the worker was stopped
+  #   10 x 1-minute periods -> had NOT alarmed 23 minutes after it was stopped
+  # CloudWatch waits beyond the evaluation window for late data before deciding
+  # that missing data really is missing, and that wait gets longer, not shorter,
+  # with short periods. So this is back on the configuration that is known to
+  # fire. Detection is about 25 minutes, not the 15 the brief assumed.
+  #
+  # OPEN: get this closer to 10 minutes. The likely route is publishing an
+  # explicit "seconds since the last check result" metric from the api
+  # container, which is alive even when the worker is not, and alarming on its
+  # value rather than on missing data.
   namespace           = "Sitewatch"
   metric_name         = "worker_heartbeat"
   statistic           = "Sum"
-  period              = 60
-  evaluation_periods  = 10
-  datapoints_to_alarm = 10
+  period              = 300
+  evaluation_periods  = 3
   threshold           = 1
   comparison_operator = "LessThanThreshold"
   treat_missing_data  = "breaching" # a dead worker publishes nothing at all

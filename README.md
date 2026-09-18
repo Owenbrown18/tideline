@@ -4,7 +4,7 @@
 
 It is a Python backend running in Docker on AWS, deployed by GitHub Actions, with tests, structured logs, metrics and alarms. The name is a working name.
 
-> **Status (2026-09-17):** **M0 to M4 done. Live at https://status.obwebdesign.ca/.** 11 sites, 66 checks, six check kinds, alerts by SES, JSON logs and EMF metrics in CloudWatch, five alarms through SNS, nightly backups to S3 with a restore tested end to end, DNS baselines captured and accepted through the API. 178 tests. Outstanding: GitHub Actions is disabled because the GitHub account is flagged (appeal filed), so deploys run from the laptop with the commands in docs/runbook.md; and the SNS email subscription needs one confirmation click before alarm emails arrive.
+> **Status (2026-09-18):** **M0 to M5 built and deployed.** Live at https://status.obwebdesign.ca/: 11 sites, 8 check kinds, 88 checks, SES alerts, CloudWatch logs/metrics/5 alarms, nightly backups with a tested restore, daily rollups, and the first monthly report for all 11 sites emailed on 2026-09-18. 229 tests. Open items: GitHub Actions is disabled because the GitHub account is flagged (appeal filed), so deploys run from the laptop; the SNS alarm subscription needs one confirmation click; the heartbeat alarm takes about 25 minutes to fire rather than 15 (measured, see infra/alarms.tf); and two real findings on client sites are waiting on Owen (see below).
 >
 > **Run it locally:** [docs/local-dev.md](docs/local-dev.md). **How the code fits together:** [docs/architecture.md](docs/architecture.md).
 
@@ -52,8 +52,8 @@ This project turns the whole cluster into things Owen has actually built and run
 | 4 | **Domain registration** | RDAP lookup for the expiry date (reuse the logic in `~/OBDesign/Systems/leadgen/domain_status.py`) | daily | under 30 days to expiry (warning), under 7 days, expired or a hold/redemption status (critical). RDAP rate limits and outages record nothing. | M1 |
 | 5 | **DNS drift** | Resolve A, AAAA, CNAME, MX, NS and TXT for the apex and `www`; compare with the stored baseline. Addresses behind a CNAME are not compared, because a CDN rotates them. | hourly | any record differs from the baseline. Owen accepts a change to make it the new baseline (`POST /sites/{id}/dns-baseline/accept`). | M4 |
 | 6 | **Email authentication** | Exactly one SPF record, under 10 DNS lookups, DMARC record present | daily | **fail** when mail is actively failing authentication (two SPF records, or over the lookup limit); **warn** for a gap that breaks nothing today (no SPF at all, no DMARC) | M4 |
-| 7 | **Broken links** | Crawl the site's internal links (same host, depth limit, polite rate), `HEAD` external links | daily | any internal link returns 4xx/5xx | M5 |
-| 8 | **Contact form health** | Load the contact page and confirm the form and its action endpoint (Formspree etc.) are present and reachable. **Never submit a real form**: that would email the client. | daily | form missing or endpoint unreachable | M5 |
+| 7 | **Broken links** | Crawl the site's internal links (same host, depth limit, polite rate), `HEAD` external links and confirm any failure with a `GET` | daily | **fail** when an internal link returns 4xx/5xx; **warn** for an external 404/410. Bot-blocking answers (Instagram 429, LinkedIn 999) are not broken links, and each broken URL counts once however many pages it appears on. | M5 |
+| 8 | **Contact form health** | Find the contact page by following the site's own navigation (or `contact_url` in sites.yaml), confirm a contact form is present, and probe its endpoint with OPTIONS/HEAD/GET. **Never submits the form**: that would email the client, and there is a test that asserts no POST is ever made. | daily | form missing, or its endpoint returns 404/410/5xx | M5 |
 
 Seed list, the 11 live sites (from `Career/Master Source.md`): davesbakery.ca, charliesexcavating.ca, ontheroadside.ca, grainconstruction.ca, nicolconstruction.ca, somavictoria.ca, bayviewcottagesaltspring.com, figsandhoney.com, suzannegaymusic.ca, maidinvictoria.ca, adriennehughes.ca.
 
@@ -257,11 +257,11 @@ Each milestone ends with something working and verified, not "code written". Wor
 - Nightly `pg_dump` to S3, and **one real restore tested** and written into the runbook.
 - Done when: stopping the worker on the server produces the heartbeat alarm email within 15 minutes, and a real restore has been done once. **Verified 2026-09-17**: the worker was stopped on the live instance and the alarm fired and invoked SNS; a backup was restored into a scratch database (11 sites, 66 checks, 169 results) and checked. Alarm emails need the SNS subscription confirmed once.
 
-**M5: Reports and the rest of the checks**
+**M5: Reports and the rest of the checks** (built and deployed 2026-09-18)
 - Daily rollups; uptime % and p50/p95 per site; 30-day views on the dashboard.
 - Monthly report per site (HTML email to Owen).
 - Checks 7–8 (broken links, contact form health).
-- Done when: the first monthly report for all 11 sites is in Owen's inbox.
+- Done when: the first monthly report for all 11 sites is in Owen's inbox. **Done 2026-09-18.** Reports are built from daily rollups, so they survive the 90-day purge of raw results, and they are viewable at `/reports/{site_id}/{yyyy-mm}` as well as emailed.
 
 **Later, only with a reason:** public status pages per client, Slack/SMS alerts, a second probe location, RDS/ECS migration, checks for client Keystatic Cloud or Square integrations, selling it as part of a maintenance plan.
 
