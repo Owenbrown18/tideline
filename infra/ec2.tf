@@ -37,7 +37,7 @@ resource "aws_instance" "app" {
     volume_size = var.root_volume_gb
     volume_type = "gp3"
     encrypted   = true
-    tags        = { Name = "sitewatch-root" }
+    tags        = { Name = "tideline-root" }
   }
 
   metadata_options {
@@ -46,7 +46,7 @@ resource "aws_instance" "app" {
 
   monitoring = false # detailed monitoring costs extra; basic is enough here
 
-  tags = { Name = "sitewatch" }
+  tags = { Name = "tideline" }
 
   lifecycle {
     # A new AMI release should not silently replace the running box. Rebuild on
@@ -64,7 +64,7 @@ resource "aws_ebs_volume" "pgdata" {
   size              = 10
   type              = "gp3"
   encrypted         = true
-  tags              = { Name = "sitewatch-pgdata" }
+  tags              = { Name = "tideline-pgdata" }
 
   lifecycle {
     prevent_destroy = true
@@ -85,5 +85,5 @@ resource "aws_volume_attachment" "pgdata" {
 resource "aws_eip" "app" {
   instance = aws_instance.app.id
   domain   = "vpc"
-  tags     = { Name = "sitewatch" }
+  tags     = { Name = "tideline" }
 }

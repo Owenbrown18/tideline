@@ -57,7 +57,7 @@ worker / api containers
   │  JSON log lines on stdout, one per check result
   ├──► Docker awslogs driver ──► CloudWatch Logs /sitewatch/containers (30-day retention)
   │        └── Logs Insights queries per site, per check, per status
-  └──► EMF metric lines ───────► CloudWatch metrics, namespace Sitewatch
+  └──► EMF metric lines ───────► CloudWatch metrics, namespace Tideline
                                    worker_heartbeat, checks_run, check_failures,
                                    open_incidents, check_duration_ms, backup_success
                                      │

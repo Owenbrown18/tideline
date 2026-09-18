@@ -27,14 +27,14 @@ SENG 360, kept deliberately small because the system is small.
 | Threat | Mitigation |
 |---|---|
 | Someone uses the API or dashboard as Owen | Bearer token for the API, basic auth for the dashboard, both random 40-character values in SSM. Compared with `secrets.compare_digest` so timing does not leak them. The app refuses to start if either is empty. |
-| Someone deploys as GitHub Actions | The OIDC trust policy pins both the repo (`Owenbrown18/sitewatch`) and the branch (`main`). A fork or another branch cannot assume the role. There are no AWS keys to steal. |
+| Someone deploys as GitHub Actions | The OIDC trust policy pins both the repo (`Owenbrown18/tideline`) and the branch (`main`). A fork or another branch cannot assume the role. There are no AWS keys to steal. |
 | Someone sends mail as `tideline@obwebdesign.ca` | Only the instance role may call SES, and only to Owen (next section). The domain has DKIM, so forged mail without the key fails authentication. |
 
 ### Tampering (changing things)
 | Threat | Mitigation |
 |---|---|
 | Changing what runs in production | Images are pushed by tag and the ECR repo is `IMMUTABLE`, so a tag cannot be overwritten with different contents. |
-| Running arbitrary commands on the server through CI | CI may run exactly one SSM document (`sitewatch-deploy`) on exactly one instance. It cannot run anything else. The document validates the tag against `^[A-Za-z0-9._-]{1,128}$`, so a tag cannot smuggle in shell. |
+| Running arbitrary commands on the server through CI | CI may run exactly one SSM document (`tideline-deploy`) on exactly one instance. It cannot run anything else. The document validates the tag against `^[A-Za-z0-9._-]{1,128}$`, so a tag cannot smuggle in shell. |
 | Changing the infrastructure | Terraform state is in a versioned, encrypted, private bucket; every change is a reviewable diff. |
 | A malicious page tricking the checks | Pages are only read, never executed. The link crawler stays on the client's own host. Page content reaches the dashboard only through Jinja's autoescaping (there is a test for an escaped apostrophe). |
 

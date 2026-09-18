@@ -7,7 +7,7 @@
 # ignored) would keep the alarm green while the worker was dead.
 #
 # The notification path is SNS, not SES: it does not run on the instance and
-# does not depend on Sitewatch working at all.
+# does not depend on Tideline working at all.
 
 resource "aws_sns_topic" "alarms" {
   name = "sitewatch-alarms"
@@ -21,8 +21,8 @@ resource "aws_sns_topic_subscription" "owen" {
 }
 
 resource "aws_cloudwatch_metric_alarm" "worker_heartbeat" {
-  alarm_name        = "sitewatch-worker-heartbeat-missing"
-  alarm_description = "The Sitewatch worker has not published a heartbeat for 10 minutes: checks are not running."
+  alarm_name        = "tideline-worker-heartbeat-missing"
+  alarm_description = "The Tideline worker has not published a heartbeat for 10 minutes: checks are not running."
 
   # History, because the first two attempts were measured and both fell short
   # (2026-09-17, stopping the worker on the live instance):
@@ -44,7 +44,7 @@ resource "aws_cloudwatch_metric_alarm" "worker_heartbeat" {
     id          = "heartbeats"
     return_data = false
     metric {
-      namespace   = "Sitewatch"
+      namespace   = "Tideline"
       metric_name = "worker_heartbeat"
       stat        = "Sum"
       period      = 60
@@ -63,7 +63,7 @@ resource "aws_cloudwatch_metric_alarm" "worker_heartbeat" {
 }
 
 resource "aws_cloudwatch_metric_alarm" "disk" {
-  alarm_name        = "sitewatch-disk-above-80-percent"
+  alarm_name        = "tideline-disk-above-80-percent"
   alarm_description = "The instance's root volume is over 80% full. Postgres and Docker images are the usual cause."
 
   namespace           = "CWAgent"
@@ -86,7 +86,7 @@ resource "aws_cloudwatch_metric_alarm" "disk" {
 }
 
 resource "aws_cloudwatch_metric_alarm" "memory" {
-  alarm_name        = "sitewatch-memory-above-85-percent"
+  alarm_name        = "tideline-memory-above-85-percent"
   alarm_description = "Sustained high memory on a 2 GB instance. Postgres plus four containers is the usual cause."
 
   namespace           = "CWAgent"
@@ -105,10 +105,10 @@ resource "aws_cloudwatch_metric_alarm" "memory" {
 }
 
 resource "aws_cloudwatch_metric_alarm" "backup" {
-  alarm_name        = "sitewatch-backup-failed"
+  alarm_name        = "tideline-backup-failed"
   alarm_description = "No successful nightly database backup in the last 36 hours."
 
-  namespace           = "Sitewatch"
+  namespace           = "Tideline"
   metric_name         = "backup_success"
   statistic           = "Sum"
   period              = 43200 # 12 h
@@ -122,10 +122,10 @@ resource "aws_cloudwatch_metric_alarm" "backup" {
 }
 
 resource "aws_cloudwatch_metric_alarm" "check_failures" {
-  alarm_name        = "sitewatch-many-check-failures"
-  alarm_description = "More than 20 failing checks in 15 minutes: likely Sitewatch's own network or DNS, not 11 sites breaking at once."
+  alarm_name        = "tideline-many-check-failures"
+  alarm_description = "More than 20 failing checks in 15 minutes: likely Tideline's own network or DNS, not 11 sites breaking at once."
 
-  namespace           = "Sitewatch"
+  namespace           = "Tideline"
   metric_name         = "check_failures"
   statistic           = "Sum"
   period              = 900
@@ -144,8 +144,8 @@ resource "aws_cloudwatch_log_group" "containers" {
   retention_in_days = 30
 }
 
-resource "aws_cloudwatch_dashboard" "sitewatch" {
-  dashboard_name = "sitewatch"
+resource "aws_cloudwatch_dashboard" "main" {
+  dashboard_name = "tideline"
 
   dashboard_body = jsonencode({
     widgets = [
@@ -158,8 +158,8 @@ resource "aws_cloudwatch_dashboard" "sitewatch" {
           region = var.region
           view   = "timeSeries"
           metrics = [
-            ["Sitewatch", "checks_run", { stat = "Sum", label = "checks run" }],
-            ["Sitewatch", "check_failures", { stat = "Sum", label = "failures" }],
+            ["Tideline", "checks_run", { stat = "Sum", label = "checks run" }],
+            ["Tideline", "check_failures", { stat = "Sum", label = "failures" }],
           ]
           period = 300
         }
@@ -173,8 +173,8 @@ resource "aws_cloudwatch_dashboard" "sitewatch" {
           region = var.region
           view   = "timeSeries"
           metrics = [
-            ["Sitewatch", "open_incidents", { stat = "Maximum", label = "open incidents" }],
-            ["Sitewatch", "worker_heartbeat", { stat = "Sum", label = "heartbeats" }],
+            ["Tideline", "open_incidents", { stat = "Maximum", label = "open incidents" }],
+            ["Tideline", "worker_heartbeat", { stat = "Sum", label = "heartbeats" }],
           ]
           period = 300
         }
@@ -188,8 +188,8 @@ resource "aws_cloudwatch_dashboard" "sitewatch" {
           region = var.region
           view   = "timeSeries"
           metrics = [
-            ["Sitewatch", "check_duration_ms", { stat = "p50", label = "p50" }],
-            ["Sitewatch", "check_duration_ms", { stat = "p95", label = "p95" }],
+            ["Tideline", "check_duration_ms", { stat = "p50", label = "p50" }],
+            ["Tideline", "check_duration_ms", { stat = "p95", label = "p95" }],
           ]
           period = 300
         }
@@ -230,5 +230,10 @@ output "alarm_topic" {
 }
 
 output "cloudwatch_dashboard_url" {
-  value = "https://${var.region}.console.aws.amazon.com/cloudwatch/home?region=${var.region}#dashboards/dashboard/sitewatch"
+  value = "https://${var.region}.console.aws.amazon.com/cloudwatch/home?region=${var.region}#dashboards/dashboard/tideline"
+}
+
+moved {
+  from = aws_cloudwatch_dashboard.sitewatch
+  to   = aws_cloudwatch_dashboard.main
 }

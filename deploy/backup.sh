@@ -19,7 +19,7 @@ compose() {
 }
 
 metric() {
-  aws cloudwatch put-metric-data --namespace Sitewatch \
+  aws cloudwatch put-metric-data --namespace Tideline \
     --metric-name backup_success --value "$1" --unit Count --region "$AWS_REGION" || true
 }
 

@@ -26,7 +26,7 @@ docker compose --env-file compose.env -f compose.prod.yaml logs -f worker
 
 ## Deploy
 Normally: push to `main`. GitHub Actions builds the arm64 image, pushes it to
-ECR, uploads the deploy files and asks SSM to run `sitewatch-deploy`.
+ECR, uploads the deploy files and asks SSM to run `tideline-deploy`.
 
 By hand (same steps the workflow runs):
 
@@ -37,7 +37,7 @@ docker buildx build --platform linux/arm64 -t 053578820490.dkr.ecr.ca-central-1.
 for f in deploy.sh compose.prod.yaml Caddyfile backup.sh restore.sh cloudwatch-agent.json; do
   aws s3 cp deploy/$f s3://sitewatch-data-053578820490/deploy/$f
 done
-aws ssm send-command --document-name sitewatch-deploy \
+aws ssm send-command --document-name tideline-deploy \
   --instance-ids i-010dc8609621b4d18 --parameters imageTag=$SHA
 ```
 
@@ -58,7 +58,7 @@ To go back on purpose, deploy an older tag:
 ```bash
 aws ecr describe-images --repository-name sitewatch \
   --query 'reverse(sort_by(imageDetails,&imagePushedAt))[].[imageTags[0],imagePushedAt]' --output table
-aws ssm send-command --document-name sitewatch-deploy \
+aws ssm send-command --document-name tideline-deploy \
   --instance-ids i-010dc8609621b4d18 --parameters imageTag=<older-tag>
 ```
 
@@ -71,7 +71,7 @@ Terraform state. Changing one and redeploying is the whole procedure:
 ```bash
 aws ssm put-parameter --name /sitewatch/api_token --type SecureString --overwrite \
   --value "$(openssl rand -base64 32 | tr -d '/+=' | cut -c1-40)"
-aws ssm send-command --document-name sitewatch-deploy \
+aws ssm send-command --document-name tideline-deploy \
   --instance-ids i-010dc8609621b4d18 --parameters imageTag=$(cat current_tag)
 ```
 
@@ -98,7 +98,7 @@ compose run --rm --no-deps api tideline run-once --kind email_auth --site davesb
 
 ```bash
 ./scripts/put_secrets.sh sites.yaml   # re-uploads the file, keeps existing passwords
-aws ssm send-command --document-name sitewatch-deploy \
+aws ssm send-command --document-name tideline-deploy \
   --instance-ids i-010dc8609621b4d18 --parameters imageTag=$(cat /opt/sitewatch/current_tag)
 ```
 
@@ -201,7 +201,7 @@ Test the watch-the-watcher alarm (measured 11 min 52 s on 2026-09-18):
 aws ssm start-session --target i-010dc8609621b4d18   # sudo -i, cd /opt/sitewatch
 docker compose --env-file compose.env -f compose.prod.yaml stop worker
 # wait, then:
-aws cloudwatch describe-alarms --alarm-names sitewatch-worker-heartbeat-missing \
+aws cloudwatch describe-alarms --alarm-names tideline-worker-heartbeat-missing \
   --query 'MetricAlarms[].StateValue' --output text
 docker compose --env-file compose.env -f compose.prod.yaml start worker
 ```
@@ -209,8 +209,8 @@ docker compose --env-file compose.env -f compose.prod.yaml start worker
 Silence an alarm while working on the box:
 
 ```bash
-aws cloudwatch disable-alarm-actions --alarm-names sitewatch-worker-heartbeat-missing
-aws cloudwatch enable-alarm-actions  --alarm-names sitewatch-worker-heartbeat-missing
+aws cloudwatch disable-alarm-actions --alarm-names tideline-worker-heartbeat-missing
+aws cloudwatch enable-alarm-actions  --alarm-names tideline-worker-heartbeat-missing
 ```
 
 ## If the dashboard is down

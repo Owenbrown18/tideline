@@ -6,7 +6,7 @@ specially shaped JSON line to stdout, Docker ships it to CloudWatch Logs, and
 CloudWatch turns it into a metric on ingestion. The line is still a readable log
 line, so nothing is lost locally, where there is no CloudWatch at all.
 
-Metrics published (namespace `Sitewatch`):
+Metrics published (namespace `Tideline`):
 
 | Metric              | Where from                                    |
 |---------------------|-----------------------------------------------|
@@ -29,9 +29,9 @@ from typing import Any
 
 log = logging.getLogger("tideline.metrics")
 
-# Still the pre-rename name: the instance's IAM policy and the alarms point at
-# it (infra/iam_instance.tf, infra/alarms.tf), so it changes with them.
-NAMESPACE = "Sitewatch"
+# The alarms and the instance's IAM policy use the same name (infra/alarms.tf,
+# infra/iam_instance.tf): change all three together.
+NAMESPACE = "Tideline"
 
 UNITS = {
     "worker_heartbeat": "Count",

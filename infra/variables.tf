@@ -19,7 +19,7 @@ variable "root_volume_gb" {
 variable "github_repo" {
   description = "owner/name of the repo allowed to deploy through OIDC."
   type        = string
-  default     = "Owenbrown18/sitewatch"
+  default     = "Owenbrown18/tideline"
 }
 
 variable "dashboard_domain" {

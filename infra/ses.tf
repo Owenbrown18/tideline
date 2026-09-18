@@ -1,6 +1,6 @@
 # Amazon SES sends the alert emails. Two identities:
 #
-#   - the DOMAIN obwebdesign.ca, so mail can come from sitewatch@obwebdesign.ca
+#   - the DOMAIN obwebdesign.ca, so mail can come from tideline@obwebdesign.ca
 #     and be signed with DKIM (three CNAME records go at the DNS host)
 #   - the ADDRESS the alerts go to, because SES stays in its sandbox, where
 #     every recipient must be verified. Staying in the sandbox is deliberate:
@@ -15,8 +15,8 @@ resource "aws_sesv2_email_identity" "owen" {
 }
 
 # A dedicated configuration set records what happened to each message.
-resource "aws_sesv2_configuration_set" "sitewatch" {
-  configuration_set_name = "sitewatch"
+resource "aws_sesv2_configuration_set" "main" {
+  configuration_set_name = "tideline"
 
   delivery_options {
     tls_policy = "REQUIRE"
@@ -40,4 +40,9 @@ output "ses_dkim_records" {
 
 output "ses_verification_note" {
   value = "Check ${var.alert_email} for an SES verification email and click the link. Until then SES will not send to it."
+}
+
+moved {
+  from = aws_sesv2_configuration_set.sitewatch
+  to   = aws_sesv2_configuration_set.main
 }

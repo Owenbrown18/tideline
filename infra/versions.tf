@@ -29,9 +29,9 @@ provider "aws" {
 
   default_tags {
     tags = {
-      Project   = "sitewatch"
+      Project   = "tideline"
       ManagedBy = "terraform"
-      Repo      = "github.com/Owenbrown18/sitewatch"
+      Repo      = "github.com/Owenbrown18/tideline"
     }
   }
 }

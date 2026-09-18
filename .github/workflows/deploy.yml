@@ -61,7 +61,7 @@ jobs:
         id: ssm
         run: |
           command_id=$(aws ssm send-command \
-            --document-name sitewatch-deploy \
+            --document-name tideline-deploy \
             --instance-ids "${{ vars.AWS_INSTANCE_ID }}" \
             --parameters imageTag=${{ github.sha }} \
             --query Command.CommandId --output text)

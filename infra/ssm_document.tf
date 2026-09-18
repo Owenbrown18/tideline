@@ -3,7 +3,7 @@
 # arbitrary commands on the box.
 
 resource "aws_ssm_document" "deploy" {
-  name            = "sitewatch-deploy"
+  name            = "tideline-deploy"
   document_type   = "Command"
   document_format = "YAML"
 

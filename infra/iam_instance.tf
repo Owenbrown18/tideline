@@ -91,7 +91,7 @@ resource "aws_iam_role_policy" "instance" {
         Action   = ["cloudwatch:PutMetricData"]
         Resource = "*"
         Condition = {
-          StringEquals = { "cloudwatch:namespace" = "Sitewatch" }
+          StringEquals = { "cloudwatch:namespace" = "Tideline" }
         }
       },
     ]

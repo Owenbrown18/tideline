@@ -118,4 +118,9 @@ hold data or secrets and cannot be renamed in place:
 | `/opt/sitewatch` on the server, and `env.sh` (`SITEWATCH_BUCKET` and friends) | Written when the instance was created. Changes only with a rebuild. |
 | The Postgres database and user `sitewatch` | Renaming means taking the database offline; it gains nothing. |
 | The compose project `sitewatch` in production | Containers named `sitewatch-*`; changing it needs a planned restart. |
-| AWS resource names (bucket, ECR repo, SSM paths, alarms, SNS topic, IAM, the `Sitewatch` metric namespace) | Most AWS names are fixed at creation: renaming means replacing the resource. Tracked separately, see the runbook. |
+| AWS names that hold data, secrets or permissions: the S3 buckets, the ECR repo, the `/sitewatch/*` SSM parameters, the `sitewatch-alarms` SNS topic, IAM roles, the security group and the `/sitewatch/containers` log group | Most AWS names are fixed at creation, so renaming means replacing the resource: moving backups and images, re-confirming the alarm email, moving secrets, rebuilding the server. Not worth it for a name nobody sees. |
+
+Renamed in AWS on 2026-09-18 (`terraform apply`, no downtime): the alarms
+(`tideline-*`), the CloudWatch dashboard, the deploy document (`tideline-deploy`),
+the metric namespace (`Tideline`), every resource's tags, and the GitHub deploy
+trust (`repo:Owenbrown18/tideline`).

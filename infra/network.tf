@@ -10,12 +10,12 @@ resource "aws_vpc" "main" {
   cidr_block           = "10.20.0.0/16"
   enable_dns_support   = true
   enable_dns_hostnames = true
-  tags                 = { Name = "sitewatch" }
+  tags                 = { Name = "tideline" }
 }
 
 resource "aws_internet_gateway" "main" {
   vpc_id = aws_vpc.main.id
-  tags   = { Name = "sitewatch" }
+  tags   = { Name = "tideline" }
 }
 
 data "aws_availability_zones" "available" {
@@ -27,7 +27,7 @@ resource "aws_subnet" "public" {
   cidr_block              = "10.20.1.0/24"
   availability_zone       = data.aws_availability_zones.available.names[0]
   map_public_ip_on_launch = true
-  tags                    = { Name = "sitewatch-public" }
+  tags                    = { Name = "tideline-public" }
 }
 
 resource "aws_route_table" "public" {
@@ -38,7 +38,7 @@ resource "aws_route_table" "public" {
     gateway_id = aws_internet_gateway.main.id
   }
 
-  tags = { Name = "sitewatch-public" }
+  tags = { Name = "tideline-public" }
 }
 
 resource "aws_route_table_association" "public" {
@@ -80,5 +80,5 @@ resource "aws_security_group" "instance" {
     ipv6_cidr_blocks = ["::/0"]
   }
 
-  tags = { Name = "sitewatch-instance" }
+  tags = { Name = "tideline-instance" }
 }
