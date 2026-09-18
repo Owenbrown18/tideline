@@ -13,7 +13,7 @@ from tideline.api.app import create_app
 from tideline.config import Settings
 from tideline.db.models import Check, CheckResult, DailyRollup, Incident, Site
 from tideline.reports.monthly import build_report, render_html, render_text
-from tideline.reports.rollups import daily_maintenance, purge_old_results, rollup_day
+from tideline.reports.rollups import after_run, purge_old_results, rollup_day
 
 DASH = ("owen", "test-password")
 DAY = date(2026, 9, 10)
@@ -112,8 +112,8 @@ async def test_purge_keeps_recent_results_and_the_rollups(sessionmaker, site_wit
     async with sessionmaker() as session, session.begin():
         await rollup_day(session, DAY)
 
-    # 100 days after that day, the raw results are past the 90-day window.
-    later = DAY_START + timedelta(days=100)
+    # 401 days after that day, the raw results are past the 400-day window.
+    later = DAY_START + timedelta(days=401)
     async with sessionmaker() as session, session.begin():
         purged = await purge_old_results(session, later)
     assert purged == 25
@@ -125,9 +125,9 @@ async def test_purge_keeps_recent_results_and_the_rollups(sessionmaker, site_wit
         assert row.uptime_ok == 22
 
 
-async def test_daily_maintenance_rolls_up_yesterday(sessionmaker, site_with_a_day):
+async def test_after_run_rolls_up_the_run_day(sessionmaker, site_with_a_day):
     async with sessionmaker() as session, session.begin():
-        summary = await daily_maintenance(session, now=DAY_START + timedelta(days=1, hours=1))
+        summary = await after_run(session, now=DAY_START + timedelta(hours=23))
     assert summary["sites_rolled_up"] == 1
     async with sessionmaker() as session:
         assert (await session.scalar(select(DailyRollup))).day == DAY
@@ -138,9 +138,7 @@ async def test_daily_maintenance_rolls_up_yesterday(sessionmaker, site_with_a_da
 
 @pytest.fixture
 async def client(sessionmaker) -> AsyncIterator[httpx.AsyncClient]:
-    app = create_app(
-        Settings(database_url=DATABASE_URL or "", api_token="t", dashboard_password=DASH[1])
-    )
+    app = create_app(Settings(database_url=DATABASE_URL, api_token="t", dashboard_password=DASH[1]))
     async with (
         httpx.AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as client,
         app.router.lifespan_context(app),
@@ -161,17 +159,20 @@ async def test_report_reads_from_the_rollups(sessionmaker, site_with_a_day):
     assert report.checks_run == 25
     assert report.days_covered == 1
     assert report.days_in_month == 30
-    assert report.downtime_text == "10 min"
+    assert report.uptime_text == "0 of 1"  # two of that day's checks failed
+    assert report.check_days == [DAY]
     assert len(report.incidents) == 1
 
     html = render_html(report)
     assert "Daves&#39; Bakery" in html
-    assert "91.66%" in html
-    assert "10 min" in html
+    assert "0 of 1" in html
+    assert "Tideline checked your website once this month, on 10 September." in html
+    assert "fixed after 10 min" in html
     assert "is down: HTTP 503" in html
 
     text = render_text(report)
-    assert "Uptime: 91.66%" in text
+    assert "Up at: 0 of 1 check\n" in text
+    assert "It was down at that check; what happened is below." in text
     assert "What happened:" in text
     assert "fixed after 10 min" in text
 
@@ -179,7 +180,7 @@ async def test_report_reads_from_the_rollups(sessionmaker, site_with_a_day):
 async def test_report_survives_the_raw_results_being_purged(sessionmaker, site_with_a_day):
     async with sessionmaker() as session, session.begin():
         await rollup_day(session, DAY)
-        await purge_old_results(session, DAY_START + timedelta(days=100))
+        await purge_old_results(session, DAY_START + timedelta(days=401))
 
     async with sessionmaker() as session:
         report = await build_report(session, site_with_a_day["site"], 2026, 9)
@@ -191,9 +192,9 @@ async def test_a_quiet_month_says_so(sessionmaker, site_with_a_day):
     async with sessionmaker() as session:
         report = await build_report(session, site_with_a_day["site"], 2026, 8)
     assert report.incidents == []
-    assert report.uptime_text == "no data"
+    assert report.uptime_text == "no checks"
     html = render_html(report)
-    assert "Tideline has not watched this site yet this month." in html
+    assert "Tideline has not checked this site yet this month." in html
     # Nothing happened, so there is no "What happened" section at all.
     assert "What happened" not in html
 
@@ -211,7 +212,7 @@ async def test_report_page_needs_auth_and_a_real_site(client, site_with_a_day, s
     page = await client.get(f"/reports/{site_id}/2026-09", auth=DASH)
     assert page.status_code == 200
     assert "September 2026" in page.text
-    assert "91.66%" in page.text
+    assert "0 of 1" in page.text
 
 
 # --- sending a whole month -------------------------------------------------------
@@ -262,52 +263,25 @@ async def test_one_failed_report_does_not_stop_the_rest(sessionmaker, site_with_
     assert len(notifier.reports) == 1
 
 
-async def test_worker_schedules_the_daily_and_monthly_jobs(sessionmaker):
-    from tideline.worker.scheduler import Worker
-
-    worker = Worker(Settings(database_url=DATABASE_URL or ""))
-    worker.scheduler.start(paused=True)
-    try:
-        # run() adds these; add them the same way without blocking on run().
-        from apscheduler.triggers.cron import CronTrigger
-
-        worker.scheduler.add_job(
-            worker.monthly_reports, CronTrigger(day=1, hour=14, timezone=UTC), id="monthly_reports"
-        )
-        job = worker.scheduler.get_job("monthly_reports")
-        first = job.trigger.get_next_fire_time(None, datetime(2026, 9, 18, tzinfo=UTC))
-        assert first == datetime(2026, 10, 1, 14, 0, tzinfo=UTC)
-    finally:
-        worker.scheduler.shutdown(wait=False)
-        await worker.http.aclose()
-        await worker.engine.dispose()
-
-
-async def test_site_page_shows_the_30_day_view(client, sessionmaker, site_with_a_day):
-    from datetime import date as date_
-
+async def test_site_page_shows_the_recent_checks(client, sessionmaker, site_with_a_day):
     async with sessionmaker() as session, session.begin():
-        today = datetime.now(UTC).date()
-        # A rollup for a recent day, so it falls inside the 30-day window.
         await rollup_day(session, DAY)
-        from sqlalchemy import update
-
-        await session.execute(update(DailyRollup).values(day=today - timedelta(days=1)))
 
     page = await client.get(f"/sites/{site_with_a_day['site']}/view", auth=DASH)
     assert page.status_code == 200
-    assert "Last 30 days" in page.text
-    assert "91.66%" in page.text
-    assert "10 min" in page.text
-    assert isinstance(today, date_)
+    assert "Last 12 checks" in page.text
+    # Two of that day's uptime checks failed, so it does not count as an up run.
+    assert "Up at 0 of 1 check" in page.text
+    assert "10 min" in page.text  # the resolved incident's duration
+    assert "watched since 10 September" in page.text
 
 
 async def test_site_page_without_rollups_says_so(client, site_with_a_day):
     page = await client.get(f"/sites/{site_with_a_day['site']}/view", auth=DASH)
-    # Only today's live results exist, so the strip is mostly hollow days.
+    # Results exist but no run has been summarised yet: every cell is hollow.
     assert page.status_code == 200
-    assert "Last 30 days" in page.text
-    assert "Hollow days were before Tideline was watching." in page.text
+    assert "No checks yet" in page.text
+    assert "Hollow cells were before Tideline was watching." in page.text
 
 
 async def test_reports_page_links_each_month(client, site_with_a_day, sessionmaker):
@@ -317,4 +291,4 @@ async def test_reports_page_links_each_month(client, site_with_a_day, sessionmak
     assert page.status_code == 200
     assert "September 2026" in page.text
     assert f'href="/reports/{site_with_a_day["site"]}/2026-09"' in page.text
-    assert "91.66%" in page.text
+    assert "up 0/1" in page.text

@@ -1,7 +1,9 @@
 """Run one check: execute it, store the result, update incidents.
 
 The database session is not held open while the check runs (an uptime check
-can take 40 s with its retry), only for the short write afterwards.
+can take 40 s with its retry), only for the short write afterwards. Checks run
+concurrently, but their writes take turns: SQLite allows one writer at a time,
+and queueing here is cheaper than retrying "database is locked".
 """
 
 import asyncio
@@ -42,14 +44,15 @@ class Runner:
         clients: Clients,
         notifier: Notifier,
         max_concurrent: int = 5,
-        reminder_every: timedelta = timedelta(hours=24),
+        reminder_every: timedelta | None = None,
     ) -> None:
         self.sessionmaker = sessionmaker
         self.clients = clients
         self.notifier = notifier
         self.reminder_every = reminder_every
         self._semaphore = asyncio.Semaphore(max_concurrent)
-        # Counts since the last heartbeat; the worker reads and resets them.
+        self._write_lock = asyncio.Lock()
+        # Counts for this run, reported at the end of it.
         self.stats: Counter[str] = Counter()
 
     async def _load(self, session: AsyncSession, check_id: int) -> Check | None:
@@ -108,7 +111,7 @@ class Runner:
             )
             return None
 
-        async with self.sessionmaker() as session, session.begin():
+        async with self._write_lock, self.sessionmaker() as session, session.begin():
             check = await self._load(session, check_id)
             if check is None:
                 return None  # deleted while it ran

@@ -1,7 +1,7 @@
 """What each screen shows, assembled from the queries.
 
 queries.py is the SQL; this module turns rows into the things the templates
-draw: the headline sentence, the 30-day strips, a site's checks in reading
+draw: the headline sentence, the strips of recent runs, a site's checks in reading
 order, an incident's timeline. Keeping the shaping here keeps the templates
 free of logic and makes every screen testable without rendering HTML.
 """
@@ -10,100 +10,97 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import select, text
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tideline import brand
 from tideline.api import queries
-from tideline.db.models import Alert, DailyRollup
+from tideline.db.models import Alert, Check, CheckResult, DailyRollup, Site
+from tideline.schedule import next_run
 
-STRIP_DAYS = 30
+# How many runs a strip shows: six months at two runs a month.
+STRIP_RUNS = 12
 
 
-# --- the 30-day strip -----------------------------------------------------------
+# --- the strip of recent runs -----------------------------------------------------
 
 
 @dataclass(frozen=True)
 class Cell:
-    day: date
+    """One run on one site. `day` is None for an empty slot before the first run."""
+
+    day: date | None
     tone: brand.Tone
-    uptime: float | None
+    uptime_ok: int = 0
+    uptime_checks: int = 0
 
     @property
     def label(self) -> str:
-        when = self.day.strftime("%a %d %b")
-        if self.uptime is None:
-            return f"{when}: not watched"
-        return f"{when}: {self.uptime:.2f}% up"
+        if self.day is None:
+            return "No check yet"
+        when = self.day.strftime("%a %-d %b")
+        return f"{when}: {_CELL_WORDS[self.tone]}"
 
 
-def cell_tone(uptime: float | None) -> brand.Tone:
-    """A day's tone from its uptime. Thresholds match the monthly report."""
-    if uptime is None:
+_CELL_WORDS: dict[brand.Tone, str] = {
+    "up": "up",
+    "warn": "down at the first try, up at the retry",
+    "down": "down",
+    "none": "not checked",
+}
+
+
+def cell_tone(uptime_ok: int, uptime_checks: int) -> brand.Tone:
+    """A run's tone: up if every uptime check passed, down if none did."""
+    if not uptime_checks:
         return "none"
-    if uptime >= 99.9:
+    if uptime_ok == uptime_checks:
         return "up"
-    if uptime >= 99.0:
-        return "warn"
-    return "down"
+    return "down" if uptime_ok == 0 else "warn"
 
 
-async def strips(
-    session: AsyncSession, site_ids: list[int], today: date | None = None
-) -> dict[int, list[Cell]]:
-    """The last 30 days per site, oldest first: rollups for past days, live data for today."""
-    today = today or datetime.now(UTC).date()
-    first = today - timedelta(days=STRIP_DAYS - 1)
-    by_day: dict[tuple[int, date], float | None] = {}
+async def strips(session: AsyncSession, site_ids: list[int]) -> dict[int, list[Cell]]:
+    """The last STRIP_RUNS runs per site, oldest first, padded with empty slots.
 
+    Each run's day is summarised into daily_rollups right after the run
+    (reports/rollups.after_run), so the rollups are the list of runs.
+    """
+    by_site: dict[int, list[DailyRollup]] = {site_id: [] for site_id in site_ids}
     for rollup in await session.scalars(
-        select(DailyRollup).where(
-            DailyRollup.site_id.in_(site_ids), DailyRollup.day >= first, DailyRollup.day < today
-        )
+        select(DailyRollup)
+        .where(DailyRollup.site_id.in_(site_ids))
+        .order_by(DailyRollup.day.desc())
     ):
-        by_day[(rollup.site_id, rollup.day)] = rollup.uptime_percent
-
-    # Today is not rolled up until tomorrow, so it comes straight from results.
-    start = datetime.combine(today, datetime.min.time(), tzinfo=UTC)
-    live = await session.execute(
-        text(
-            """
-            SELECT c.site_id,
-                   count(*) AS n,
-                   count(*) FILTER (WHERE r.status = 'ok') AS ok
-            FROM check_results r
-            JOIN checks c ON c.id = r.check_id
-            WHERE c.kind = 'uptime' AND r.started_at >= :start
-            GROUP BY c.site_id
-            """
-        ),
-        {"start": start},
-    )
-    for row in live:
-        if row.site_id in site_ids and row.n:
-            by_day[(row.site_id, today)] = round(100 * row.ok / row.n, 3)
+        runs = by_site[rollup.site_id]
+        if len(runs) < STRIP_RUNS:
+            runs.append(rollup)
 
     out: dict[int, list[Cell]] = {}
-    for site_id in site_ids:
-        cells = []
-        for offset in range(STRIP_DAYS):
-            day = first + timedelta(days=offset)
-            uptime = by_day.get((site_id, day))
-            cells.append(Cell(day, cell_tone(uptime), uptime))
-        out[site_id] = cells
+    for site_id, runs in by_site.items():
+        cells = [
+            Cell(r.day, cell_tone(r.uptime_ok, r.uptime_checks), r.uptime_ok, r.uptime_checks)
+            for r in reversed(runs)
+        ]
+        out[site_id] = [Cell(None, "none")] * (STRIP_RUNS - len(cells)) + cells
     return out
 
 
 def strip_summary(cells: list[Cell]) -> str:
     """Screen-reader text for a strip, since the cells themselves are visual."""
-    watched = [c for c in cells if c.uptime is not None]
-    if not watched:
-        return "No days watched yet."
-    bad = [c for c in watched if c.tone != "up"]
-    days = "day" if len(watched) == 1 else "days"
-    if not bad:
-        return f"{len(watched)} {days} watched, all fully up."
-    return f"{len(watched)} {days} watched, {len(bad)} with downtime."
+    runs = [c for c in cells if c.day is not None]
+    if not runs:
+        return "Not checked yet."
+    up = [c for c in runs if c.tone == "up"]
+    checks = "check" if len(runs) == 1 else "checks"
+    if len(up) == len(runs):
+        return f"Up at all {len(runs)} {checks}." if len(runs) > 1 else "Up at the one check."
+    return f"Up at {len(up)} of {len(runs)} {checks}."
+
+
+def up_at(cells: list[Cell]) -> tuple[int, int]:
+    """(runs where the site was up, runs), across a strip."""
+    runs = [c for c in cells if c.day is not None]
+    return len([c for c in runs if c.tone == "up"]), len(runs)
 
 
 # --- the overview -----------------------------------------------------------------
@@ -124,7 +121,8 @@ class SiteRow:
     tone: brand.Tone
     cells: list[Cell]
     strip_label: str
-    uptime: float | None
+    up_runs: int
+    runs: int
     p50_ms: int | None
     cert_days: int | None
     domain_days: int | None
@@ -149,7 +147,7 @@ class Overview:
     warnings: list[NeedsYou]
     total_sites: int
     total_checks: int
-    uptime_30d: float | None
+    next_run: datetime
     last_checked_at: datetime | None
     state: brand.Tone = "none"
     down_count: int = 0
@@ -159,8 +157,11 @@ class Overview:
 
 _TONE_ORDER = {"down": 0, "warn": 1, "none": 2, "up": 3}
 
+# Response times are averaged over this window: the last few runs.
+RESPONSE_DAYS = 90
 
-async def overview(session: AsyncSession) -> Overview:
+
+async def overview(session: AsyncSession, zone: str = "America/Vancouver") -> Overview:
     sites = [s for s in await queries.site_statuses(session) if s.active]
     open_incidents = await queries.incidents(session, open_only=True, limit=500)
     site_ids = [s.id for s in sites]
@@ -169,7 +170,6 @@ async def overview(session: AsyncSession) -> Overview:
     rows: list[SiteRow] = []
     total_checks = 0
     last_checked: datetime | None = None
-    uptime_numerator = uptime_denominator = 0
     for site in sites:
         enabled = [c for c in site.checks if c.enabled]
         total_checks += len(enabled)
@@ -177,10 +177,9 @@ async def overview(session: AsyncSession) -> Overview:
         for check in enabled:
             if check.last_checked_at and (not last_checked or check.last_checked_at > last_checked):
                 last_checked = check.last_checked_at
-        stats = await queries.uptime_stats(session, site.id, STRIP_DAYS)
-        uptime_numerator += stats.ok
-        uptime_denominator += stats.results
+        stats = await queries.uptime_stats(session, site.id, RESPONSE_DAYS)
         site_cells = cells.get(site.id, [])
+        up_runs, runs = up_at(site_cells)
         rows.append(
             SiteRow(
                 id=site.id,
@@ -189,7 +188,8 @@ async def overview(session: AsyncSession) -> Overview:
                 tone=brand.tone(site.status),
                 cells=site_cells,
                 strip_label=strip_summary(site_cells),
-                uptime=stats.uptime_percent,
+                up_runs=up_runs,
+                runs=runs,
                 p50_ms=stats.p50_ms,
                 cert_days=_days_left(by_kind.get("tls")),
                 domain_days=_days_left(by_kind.get("domain")),
@@ -221,7 +221,7 @@ async def overview(session: AsyncSession) -> Overview:
         warnings=warnings,
         total_sites=len(rows),
         total_checks=total_checks,
-        uptime_30d=(100 * uptime_numerator / uptime_denominator if uptime_denominator else None),
+        next_run=next_run(datetime.now(UTC), zone),
         last_checked_at=last_checked,
         state=head.tone,
         down_count=len(down_sites),
@@ -276,6 +276,8 @@ class SitePage:
     open_incidents: list[IncidentPanel]
     past_incidents: list[queries.IncidentView]
     uptime: queries.UptimeStats
+    up_runs: int
+    runs: int
     passing: int
     enabled: int
 
@@ -283,7 +285,7 @@ class SitePage:
 ALERT_WORDS = {
     "open": "Alert emailed to Owen.",
     "escalated": "Now critical. Alert emailed to Owen.",
-    "reminder": "Still open after a day. Reminder emailed.",
+    "reminder": "Still open. Listed in the run summary.",
     "resolved": "Recovery emailed to Owen.",
 }
 
@@ -378,17 +380,20 @@ async def site_page(
     tone = brand.tone(site.status)
     passing = len([c for c in cards if c.tone == "up"])
     watched_since = await session.scalar(
-        text(
-            "SELECT min(r.started_at) FROM check_results r JOIN checks c ON c.id = r.check_id "
-            "WHERE c.site_id = :id"
-        ),
-        {"id": site_id},
+        select(func.min(CheckResult.started_at))
+        .join(Check, Check.id == CheckResult.check_id)
+        .where(Check.site_id == site_id)
     )
-    since = (
-        f"watched since {brand.local(watched_since, '%-d %B', zone)}"
-        if watched_since
-        else "not checked yet"
+    first_rollup = await session.scalar(
+        select(func.min(DailyRollup.day)).where(DailyRollup.site_id == site_id)
     )
+    if first_rollup is not None:
+        since = f"watched since {brand.human_date(first_rollup, year=False)}"
+    elif watched_since is not None:
+        since = f"watched since {brand.local(watched_since, '%-d %B', zone)}"
+    else:
+        since = "not checked yet"
+    up_runs, runs = up_at(site_cells)
     return SitePage(
         id=site.id,
         name=site.name,
@@ -401,7 +406,9 @@ async def site_page(
         strip_label=strip_summary(site_cells),
         open_incidents=panels,
         past_incidents=past,
-        uptime=await queries.uptime_stats(session, site_id, STRIP_DAYS),
+        uptime=await queries.uptime_stats(session, site_id, RESPONSE_DAYS),
+        up_runs=up_runs,
+        runs=runs,
         passing=passing,
         enabled=len(cards),
     )
@@ -438,21 +445,15 @@ async def reports_page(session: AsyncSession) -> list[ReportMonth]:
     """Every month that has daily rollups, newest first, with the sites in it."""
     rows = (
         await session.execute(
-            text(
-                """
-                SELECT date_trunc('month', r.day)::date AS month, s.id, s.name, s.domain,
-                       sum(r.uptime_ok)::float / nullif(sum(r.uptime_checks), 0) * 100 AS uptime
-                FROM daily_rollups r
-                JOIN sites s ON s.id = r.site_id
-                GROUP BY 1, s.id, s.name, s.domain
-                ORDER BY 1 DESC, s.name
-                """
-            )
+            select(DailyRollup, Site)
+            .join(Site, Site.id == DailyRollup.site_id)
+            .order_by(DailyRollup.day.desc(), Site.name)
         )
     ).all()
     months: dict[date, ReportMonth] = {}
-    for row in rows:
-        month: date = row.month
+    totals: dict[tuple[date, int], list[int]] = {}
+    for rollup, site in rows:
+        month = rollup.day.replace(day=1)
         if month not in months:
             months[month] = ReportMonth(
                 year=month.year,
@@ -461,14 +462,19 @@ async def reports_page(session: AsyncSession) -> list[ReportMonth]:
                 key=f"{month.year}-{month.month:02d}",
                 sites=[],
             )
-        months[month].sites.append(
-            {
-                "id": row.id,
-                "name": row.name,
-                "domain": row.domain,
-                "uptime": row.uptime,  # formatted by brand.percent
-            }
-        )
+        key = (month, site.id)
+        if key not in totals:
+            totals[key] = [0, 0]
+            months[month].sites.append({"id": site.id, "name": site.name, "domain": site.domain})
+        # Runs, as on the strip: up at a run when every uptime check passed.
+        if rollup.uptime_checks:
+            totals[key][0] += int(rollup.uptime_ok == rollup.uptime_checks)
+            totals[key][1] += 1
+    for month, report in months.items():
+        report.sites.sort(key=lambda entry: str(entry["name"]).lower())
+        for entry in report.sites:
+            ok, checks = totals[(month, int(entry["id"]))]
+            entry["up_runs"], entry["runs"] = ok, checks
     return list(months.values())
 
 

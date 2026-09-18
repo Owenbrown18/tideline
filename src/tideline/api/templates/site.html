@@ -34,12 +34,12 @@
 
     <section class="section" aria-labelledby="days">
       <div class="section-head">
-        <h2 id="days" class="label">Last 30 days</h2>
-        <span class="muted" style="font-size: 13px;">{{ p.uptime.uptime_percent|percent ~ ' up' if p.uptime.uptime_percent is not none else 'No data yet' }}{% if p.uptime.p50_ms is not none %} · {{ p.uptime.p50_ms }} ms typical response{% endif %}</span>
+        <h2 id="days" class="label">Last 12 checks</h2>
+        <span class="muted" style="font-size: 13px;">{{ 'Up at ' ~ p.up_runs ~ ' of ' ~ p.runs ~ (' check' if p.runs == 1 else ' checks') if p.runs else 'No checks yet' }}{% if p.uptime.p50_ms is not none %} · {{ p.uptime.p50_ms }} ms typical response{% endif %}</span>
       </div>
       <div class="panel" style="padding: 20px 22px; display: flex; flex-direction: column; gap: 10px;">
         {{ m.strip(p.cells, p.strip_label, big=true) }}
-        <div class="strip-ends"><span class="mono">{{ p.cells[0].day.strftime('%-d %b') }}</span><span>Hollow days were before Tideline was watching.</span><span class="mono">Today</span></div>
+        <div class="strip-ends"><span>Oldest</span><span>Hollow cells were before Tideline was watching.</span><span>Latest</span></div>
       </div>
     </section>
 

@@ -1,7 +1,12 @@
 """The monthly report for one site.
 
-Built from the daily rollups (uptime, response times) plus the incident records
-for the month, so it works even after the raw results have been purged.
+Built from the daily rollups (one per site per run: checks passed, response
+times) plus the incident records for the month, so it works even after the raw
+results have been purged.
+
+Tideline checks twice a month (docs/decisions/0005), so the report says what
+was measured, "up at 2 of 2 checks, on 1 and 15 September", rather than an
+uptime percentage or a downtime total that two checks cannot know.
 
 It goes to Owen, never to a client: Tideline holds no client addresses. Owen
 decides what to forward, and the HTML is written so it can be forwarded as is.
@@ -12,7 +17,6 @@ from calendar import monthrange
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from sqlalchemy import func, select
@@ -22,7 +26,7 @@ from tideline import brand
 from tideline.api import queries
 from tideline.brand import human_date
 from tideline.config import get_settings
-from tideline.db.models import Check, CheckResult, DailyRollup, Site
+from tideline.db.models import DailyRollup, Site
 from tideline.notify.base import Notifier, format_duration
 from tideline.observability.logging import log_event
 from tideline.reports.rollups import month_rollups
@@ -47,6 +51,8 @@ class MonthlyReport:
     days_covered: int
     days_in_month: int
     uptime_percent: float | None
+    up_runs: int
+    check_days: list[date]
     checks_run: int
     p50_ms: int | None
     p95_ms: int | None
@@ -68,8 +74,23 @@ class MonthlyReport:
         return format_duration(timedelta(seconds=self.downtime_seconds))
 
     @property
+    def runs(self) -> int:
+        return len(self.check_days)
+
+    @property
+    def all_up(self) -> bool:
+        return bool(self.runs) and self.up_runs == self.runs
+
+    @property
     def uptime_text(self) -> str:
-        return brand.percent(self.uptime_percent, empty="no data")
+        """The big figure: up at "2 of 2" checks this month.
+
+        A check is one run: the site counts as up at it when every uptime
+        check that run passed (the same rule as the dashboard's strip).
+        """
+        if not self.runs:
+            return "no checks"
+        return f"{self.up_runs} of {self.runs}"
 
     @property
     def subject(self) -> str:
@@ -77,23 +98,31 @@ class MonthlyReport:
 
     @property
     def uptime_sentence(self) -> str:
-        """The line under the big number, in words a client reads."""
-        since = (
-            f" since Tideline started watching it on {human_date(self.first_day, year=False)}"
-            if (
-                self.first_day
-                and (self.first_day.year, self.first_day.month) == (self.year, self.month)
-            )
-            else " all month"
+        """The line under the big figure, in words a client reads."""
+        if not self.check_days:
+            return "Tideline has not checked this site yet this month."
+        runs = len(self.check_days)
+        times = {1: "once", 2: "twice"}.get(runs, f"{runs} times")
+        dates = _join_dates(self.check_days)
+        checked = f"Tideline checked your website {times} this month, on {dates}."
+        if self.all_up:
+            every = {1: "It was up.", 2: "It was up both times."}.get(runs, "It was up every time.")
+            return f"{checked} {every}"
+        if runs == 1:
+            return f"{checked} It was down at that check; what happened is below."
+        return f"{checked} It was up at {self.up_runs} of them; what happened is below."
+
+
+def _join_dates(days: list[date]) -> str:
+    """[1 Sep, 15 Sep] -> "1 and 15 September"; across months, each gets its month."""
+    if len({d.month for d in days}) == 1:
+        numbers = [str(d.day) for d in days]
+        joined = (
+            numbers[0] if len(numbers) == 1 else ", ".join(numbers[:-1]) + " and " + numbers[-1]
         )
-        if self.uptime_percent is None:
-            return "Tideline has not watched this site yet this month."
-        if self.uptime_percent >= 99.999:
-            return f"Your website answered every check{since}. It was never down."
-        return (
-            f"Your website was down for {self.downtime_text} in total{since}. "
-            "Every outage is listed below."
-        )
+        return f"{joined} {days[0].strftime('%B')}"
+    names = [human_date(d, year=False) for d in days]
+    return ", ".join(names[:-1]) + " and " + names[-1]
 
 
 @dataclass(frozen=True)
@@ -136,7 +165,7 @@ def _evidence(check: queries.CheckStatus) -> str:
     if tone == "none":
         return "not checked yet"
     if check.kind in ("uptime", "content"):
-        return "every 5 min" if tone == "up" else "failing"
+        return "at every check" if tone == "up" else "failing"
     if check.kind == "tls" and detail.get("not_after"):
         return "until " + brand.human_date(datetime.fromisoformat(detail["not_after"]), year=False)
     if check.kind == "domain" and detail.get("expiry"):
@@ -144,7 +173,7 @@ def _evidence(check: queries.CheckStatus) -> str:
     if check.kind == "links" and detail.get("links_checked") is not None:
         return f"{detail['links_checked']} links"
     if check.kind == "dns":
-        return "hourly" if tone == "up" else "changed"
+        return "unchanged" if tone == "up" else "changed"
     if check.kind == "email_auth" and tone != "up":
         missing = []
         if not detail.get("spf_records"):
@@ -153,8 +182,8 @@ def _evidence(check: queries.CheckStatus) -> str:
             missing.append("DMARC")
         return (" and ".join(missing) + " missing") if missing else "needs attention"
     if check.kind == "form":
-        return "checked daily" if tone == "up" else "not delivering"
-    return "checked daily"
+        return "checked" if tone == "up" else "not delivering"
+    return "checked"
 
 
 def _coming_up(checks: dict[str, queries.CheckStatus], today: date) -> list[str]:
@@ -210,6 +239,7 @@ async def build_report(session: AsyncSession, site_id: int, year: int, month: in
 
     uptime_checks = sum(row.uptime_checks for row in rows)
     uptime_ok = sum(row.uptime_ok for row in rows)
+    runs = [row for row in rows if row.uptime_checks]  # days a run checked the site
 
     statuses = await queries.site_statuses(session, site_id)
     checks = {c.kind: c for c in statuses[0].checks if c.enabled} if statuses else {}
@@ -223,15 +253,8 @@ async def build_report(session: AsyncSession, site_id: int, year: int, month: in
         Watched(brand.tone(c.status), client_words(c.kind, brand.tone(c.status)), _evidence(c))
         for c in sorted(checks.values(), key=lambda c: order.get(c.kind, 99))
     ]
-    first_result = await session.scalar(
-        select(func.min(CheckResult.started_at))
-        .join(Check, Check.id == CheckResult.check_id)
-        .where(Check.site_id == site_id)
-    )
-    first_day = (
-        first_result.astimezone(ZoneInfo(get_settings().display_timezone)).date()
-        if first_result
-        else None
+    first_day = await session.scalar(
+        select(func.min(DailyRollup.day)).where(DailyRollup.site_id == site_id)
     )
     return MonthlyReport(
         site_name=site.name,
@@ -242,6 +265,8 @@ async def build_report(session: AsyncSession, site_id: int, year: int, month: in
         days_covered=len(rows),
         days_in_month=monthrange(year, month)[1],
         uptime_percent=round(100 * uptime_ok / uptime_checks, 3) if uptime_checks else None,
+        up_runs=sum(1 for r in runs if r.uptime_ok == r.uptime_checks),
+        check_days=[r.day for r in runs],
         checks_run=sum(row.results for row in rows),
         p50_ms=_percentile([row.p50_ms for row in rows if row.p50_ms is not None], 0.5),
         p95_ms=_percentile([row.p95_ms for row in rows if row.p95_ms is not None], 0.95),
@@ -275,11 +300,10 @@ def render_text(report: MonthlyReport) -> str:
         f"{report.site_name} ({report.domain})",
         f"{report.month_name} website report, from Tideline",
         "",
-        f"Uptime: {report.uptime_text}",
+        f"Up at: {report.uptime_text} {'check' if report.runs == 1 else 'checks'}",
         report.uptime_sentence,
         "",
         f"Typical response time: {report.p50_ms or '-'} ms",
-        f"Downtime: {report.downtime_text}",
     ]
     if report.coming_up:
         lines += ["", "Coming up:"] + [f"  ! {note}" for note in report.coming_up]
@@ -300,8 +324,8 @@ def render_text(report: MonthlyReport) -> str:
     lines += [f"  {marks[w.tone]} {w.text} ({w.evidence})" for w in report.watched]
     lines += [
         "",
-        "Watched every five minutes by Tideline, the monitoring service behind every "
-        "OBdesign website.",
+        "Checked on the 1st and 15th of every month by Tideline, the monitoring service "
+        "behind every OBdesign website.",
     ]
     return "\n".join(lines)
 

@@ -51,7 +51,7 @@ def test_client_words_are_plain():
 
 
 def test_evidence():
-    assert _evidence(status("uptime")) == "every 5 min"
+    assert _evidence(status("uptime")) == "at every check"
     assert _evidence(status("uptime", "fail")) == "failing"
     assert _evidence(status("domain", expiry="2027-03-04")) == "until 4 March 2027"
     assert _evidence(status("tls", not_after="2026-12-01T00:00:00+00:00")) == "until 1 December"

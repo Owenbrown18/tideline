@@ -1,7 +1,8 @@
-"""End to end through the runner: real HTTP server, real Postgres, incident lifecycle.
+"""End to end through the runner: real HTTP server, real SQLite, incident lifecycle.
 
-This is the M1 "Done when" scenario as a test: a site goes down, an incident
-opens after two failed runs, alerts are recorded, and it resolves on recovery.
+A site goes down, an incident opens on the first failed run, alerts are
+recorded, and it resolves on recovery. Then the same through a whole scheduled
+run (tideline.worker.run), including the one summary email it sends.
 """
 
 import asyncio
@@ -20,7 +21,6 @@ from tideline.db.models import Alert, Check, CheckResult, Incident
 from tideline.notify.base import AlertMessage
 from tideline.sites import SitesFile, seed
 from tideline.worker.runner import Runner
-from tideline.worker.scheduler import JOB_PREFIX, Worker, first_run_offset
 
 
 class RecordingNotifier:
@@ -153,32 +153,27 @@ async def test_site_down_opens_then_recovery_resolves(
     assert await incidents(sessionmaker) == []
 
     await fake_site.stop()
-    first_failure_at = clock.current + timedelta(minutes=5)
-    assert (await tick(runner, clock, uptime)).status == "fail"
-    assert await incidents(sessionmaker) == []  # one failure is not an incident
-
-    assert (await tick(runner, clock, uptime)).status == "fail"
+    failed_at = clock.current + timedelta(days=14)
+    assert (await tick(runner, clock, uptime, minutes=14 * 24 * 60)).status == "fail"
+    # Runs are two weeks apart, so the first failed run opens the incident
+    # (the check itself already retried once before failing).
     [incident] = await incidents(sessionmaker)
     assert incident.resolved_at is None
     assert incident.severity == "critical"
-    assert incident.opened_at == first_failure_at  # dated from the first failure
+    assert incident.opened_at == failed_at
     assert [m.kind for m in notifier.sent] == ["open"]
 
-    # Still down 5 minutes later: no repeat alert.
-    await tick(runner, clock, uptime)
-    assert len(notifier.sent) == 1
-
-    # Still down a day later: one reminder.
-    await tick(runner, clock, uptime, minutes=24 * 60)
-    assert [m.kind for m in notifier.sent] == ["open", "reminder"]
+    # Still down at the next run: no reminder, the run summary lists it instead.
+    await tick(runner, clock, uptime, minutes=14 * 24 * 60)
+    assert [m.kind for m in notifier.sent] == ["open"]
 
     await fake_site.start()  # same port
-    assert (await tick(runner, clock, uptime)).status == "ok"
+    assert (await tick(runner, clock, uptime, minutes=14 * 24 * 60)).status == "ok"
     [incident] = await incidents(sessionmaker)
     assert incident.resolved_at == clock.current
-    assert [m.kind for m in notifier.sent] == ["open", "reminder", "resolved"]
+    assert [m.kind for m in notifier.sent] == ["open", "resolved"]
     assert notifier.sent[-1].duration == incident.resolved_at - incident.opened_at
-    assert await alert_kinds(sessionmaker) == ["open", "reminder", "resolved"]
+    assert await alert_kinds(sessionmaker) == ["open", "resolved"]
 
 
 async def test_content_failure_opens_immediately(sessionmaker, runner, notifier, clock, fake_site):
@@ -206,7 +201,6 @@ async def test_failed_alert_is_retried_on_the_next_run(
     await fake_site.stop()
     notifier.fail_next = 1
 
-    await tick(runner, clock, ids["uptime"])
     await tick(runner, clock, ids["uptime"])  # opens, but the send fails
     [incident] = await incidents(sessionmaker)
     assert incident.last_alerted_at is None
@@ -232,38 +226,83 @@ async def test_crashing_check_records_nothing_and_counts_an_error(
     assert await incidents(sessionmaker) == []
 
 
-async def test_worker_schedules_enabled_checks_and_follows_changes(sessionmaker, engine, fake_site):
+# --- a whole run --------------------------------------------------------------------
+
+
+def run_settings():
     from tests.integration.conftest import DATABASE_URL
     from tideline.config import Settings
 
-    ids = await seed_fake(sessionmaker, fake_site.url)
-    worker = Worker(Settings(database_url=DATABASE_URL))
-    worker.scheduler.start(paused=True)
-    try:
-        await worker.refresh_jobs()
-        scheduled = {j.id for j in worker.scheduler.get_jobs()}
-        assert scheduled == {f"{JOB_PREFIX}{ids['uptime']}", f"{JOB_PREFIX}{ids['content']}"}
-
-        async with sessionmaker() as session, session.begin():
-            check = await session.get(Check, ids["content"])
-            check.enabled = False
-            uptime = await session.get(Check, ids["uptime"])
-            uptime.interval_seconds = 42
-        await worker.refresh_jobs()
-        [job] = worker.scheduler.get_jobs()
-        assert job.id == f"{JOB_PREFIX}{ids['uptime']}"
-        assert job.trigger.interval == timedelta(seconds=42)
-
-        await worker.heartbeat()  # runs against the real database without error
-    finally:
-        worker.scheduler.shutdown(wait=False)
-        await worker.http.aclose()
-        await worker.engine.dispose()
+    return Settings(database_url=DATABASE_URL, uptime_retry_delay_seconds=0)
 
 
-def test_first_runs_are_spread_over_a_minute():
-    offsets = {first_run_offset(i, 300) for i in range(1, 50)}
-    assert min(offsets) >= 0
-    assert max(offsets) < 60
-    assert len(offsets) > 20
-    assert first_run_offset(5, 10) < 10
+async def test_a_run_emails_only_when_something_changes(sessionmaker, fake_site):
+    from tideline.db.models import DailyRollup
+    from tideline.worker.run import run
+
+    await seed_fake(sessionmaker, fake_site.url)
+    notifier = RecordingNotifier()
+    settings = run_settings()
+
+    first = await run(settings, notifier, reports=False)
+    assert (first.checks, first.failures, first.summary_emailed) == (2, 0, False)
+    assert notifier.reports == []  # all fine: no email at all
+
+    await fake_site.stop()
+    down = await run(settings, notifier, reports=False)
+    assert down.summary_emailed
+    assert notifier.reports == ["Tideline check: 1 new problem"]
+    assert down.open_incidents == 1
+
+    still_down = await run(settings, notifier, reports=False)
+    assert not still_down.summary_emailed  # nothing new: no second email
+    assert len(notifier.reports) == 1
+
+    await fake_site.start()
+    fixed = await run(settings, notifier, reports=False)
+    assert fixed.summary_emailed
+    assert notifier.reports[-1] == "Tideline check: 1 fixed"
+    assert fixed.open_incidents == 0
+
+    async with sessionmaker() as session:
+        [rollup] = list(await session.scalars(select(DailyRollup)))
+    assert rollup.uptime_checks == 4  # every run on the same test day, one row
+
+
+async def test_a_run_on_the_first_sends_the_monthly_reports(sessionmaker, fake_site):
+    from datetime import UTC, datetime
+
+    from tideline.worker.run import run
+
+    await seed_fake(sessionmaker, fake_site.url)
+    notifier = RecordingNotifier()
+    # 1 October, 07:00 in Vancouver.
+    report = await run(run_settings(), notifier, now=datetime(2026, 10, 1, 14, 0, tzinfo=UTC))
+    assert report.reports_sent == 1
+    assert notifier.reports == ["September 2026 report: Fake Bakery"]
+
+
+async def test_a_run_loads_the_site_list_first(sessionmaker, tmp_path, fake_site):
+    from tideline.worker.run import run
+
+    sites = tmp_path / "sites.yaml"
+    sites.write_text(
+        f"""
+sites:
+  - name: Fake Bakery
+    domain: fakesite.test
+    expected_text: Fake Bakery
+    urls: ["{fake_site.url}"]
+    checks: {{tls: false, domain: false, dns: false, email_auth: false, links: false, form: false}}
+"""
+    )
+    report = await run(run_settings(), RecordingNotifier(), sites_file=sites, reports=False)
+    assert report.checks == 2
+
+
+async def test_a_run_can_be_narrowed_to_one_kind(sessionmaker, fake_site):
+    from tideline.worker.run import run
+
+    await seed_fake(sessionmaker, fake_site.url)
+    report = await run(run_settings(), RecordingNotifier(), kind="content", reports=False)
+    assert report.checks == 1

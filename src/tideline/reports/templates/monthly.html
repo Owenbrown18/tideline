@@ -41,9 +41,8 @@
   </td></tr>
 
   <tr><td style="padding:34px 40px 6px;">
-    <div style="{{ label }}">Uptime</div>
-    {%- set good = report.uptime_percent is not none and report.uptime_percent >= 99.9 %}
-    <div style="font-family:{{ serif }};font-weight:700;font-size:84px;line-height:1;letter-spacing:-0.045em;color:{{ '#255d8c' if good or report.uptime_percent is none else '#a8321f' }};padding:6px 0 10px;">{{ report.uptime_text }}</div>
+    <div style="{{ label }}">Up at</div>
+    <div style="font-family:{{ serif }};font-weight:700;font-size:84px;line-height:1;letter-spacing:-0.045em;color:{{ '#255d8c' if report.all_up or not report.runs else '#a8321f' }};padding:6px 0 10px;">{{ report.uptime_text }}<span style="font-size:28px;letter-spacing:-0.02em;"> {{ 'check' if report.runs == 1 else 'checks' }}</span></div>
     <div style="font-family:{{ sans }};font-size:15px;line-height:1.55;color:#3a403e;">{{ report.uptime_sentence }}</div>
   </td></tr>
 
@@ -55,8 +54,8 @@
           <div style="{{ label }}padding-top:4px;">Typical response time</div>
         </td>
         <td width="50%" valign="top">
-          <div style="font-family:{{ serif }};font-weight:600;font-size:32px;letter-spacing:-0.04em;color:#1e1e1e;">{{ report.downtime_text|capitalize }}</div>
-          <div style="{{ label }}padding-top:4px;">Downtime</div>
+          <div style="font-family:{{ serif }};font-weight:600;font-size:32px;letter-spacing:-0.04em;color:#1e1e1e;">{{ report.check_days|length }}</div>
+          <div style="{{ label }}padding-top:4px;">{{ 'Check' if report.check_days|length == 1 else 'Checks' }} this month</div>
         </td>
       </tr>
     </table>
@@ -107,7 +106,7 @@
   <tr><td style="padding:28px 40px 34px;border-top:1px solid #efede8;">
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
       <tr>
-        <td valign="bottom" style="font-family:{{ sans }};font-size:13px;line-height:1.55;color:#636c68;padding-right:20px;">Watched every five minutes by Tideline, the monitoring service behind every OBdesign website.</td>
+        <td valign="bottom" style="font-family:{{ sans }};font-size:13px;line-height:1.55;color:#636c68;padding-right:20px;">Checked on the 1st and 15th of every month by Tideline, the monitoring service behind every OBdesign website.</td>
         <td align="right" valign="bottom" style="font-family:{{ serif }};font-weight:700;font-size:20px;letter-spacing:-0.04em;color:#0b1f1d;white-space:nowrap;">OB<span style="opacity:0.45;">design</span><span style="color:#7ba49e;">.</span></td>
       </tr>
     </table>

@@ -1,8 +1,9 @@
 """Settings, read from environment variables (prefix TIDELINE_).
 
-Locally these come from compose.yaml or a .env file. In production the deploy
-script writes them from SSM Parameter Store, so nothing secret is ever in the
-repo or baked into the image.
+Locally these come from the environment or a .env file. On Lambda the
+non-secret ones are set on the function (infra/lambda.tf), and the secrets are
+read from SSM Parameter Store when the function starts (tideline.aws_lambda),
+so nothing secret is ever in the repo, the image or the function's settings.
 """
 
 from functools import lru_cache
@@ -13,30 +14,32 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="TIDELINE_", env_file=".env", extra="ignore")
 
-    # SQLAlchemy URL. psycopg 3 serves both the async app and sync Alembic.
-    database_url: str = "postgresql+psycopg://sitewatch:sitewatch@localhost:5432/sitewatch"
+    # SQLAlchemy URL of the SQLite file. On Lambda it is a copy in /tmp that
+    # tideline.db.store downloads from S3 and uploads back (docs/decisions/0005).
+    database_url: str = "sqlite+aiosqlite:///tideline.db"
 
     log_level: str = "INFO"
     user_agent: str = "Tideline/1.0 (+https://obwebdesign.ca)"
 
-    # Worker behaviour
+    # Where the database file lives between runs on Lambda (tideline.db.store).
+    # Empty means "just use database_url as it is" (local development).
+    db_bucket: str = ""
+    db_key: str = "tideline.db"
+    # SSM Parameter Store path holding the secrets and the site list.
+    secrets_prefix: str = ""
+
+    # Runs
     max_concurrent_checks: int = 5
     # Seconds between the first uptime failure and its one retry (README section 2).
     uptime_retry_delay_seconds: float = 30.0
-    # How often the worker re-reads the checks table to pick up added/removed checks.
-    schedule_refresh_seconds: int = 60
-    # How often the worker logs its heartbeat.
-    heartbeat_seconds: int = 60
-    # Hours between reminder alerts for an incident that stays open.
-    reminder_hours: int = 24
 
     # API and dashboard. Both credentials are required for the API to start:
-    # in production the deploy script reads them from SSM Parameter Store.
+    # in production they are read from SSM Parameter Store.
     api_token: str = ""
     dashboard_user: str = "owen"
     dashboard_password: str = ""
-    # Binds inside the container only: Caddy is the only public listener.
-    api_host: str = "0.0.0.0"
+    # `tideline api` (local development) listens here.
+    api_host: str = "127.0.0.1"
     api_port: int = 8000
 
     # Alerts. "log" writes them as log lines (local development), "ses" emails

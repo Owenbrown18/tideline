@@ -30,20 +30,19 @@ async def process_result(
     summary: str,
     notifier: Notifier,
     now: datetime,
-    reminder_every: timedelta = timedelta(hours=24),
+    reminder_every: timedelta | None = None,
 ) -> Decision:
     """Open, update or resolve this check's incident after `result` was flushed.
 
-    Runs inside the caller's transaction. The open incident row is locked
-    (SELECT ... FOR UPDATE) so two overlapping runs cannot both open one; the
-    partial unique index on incidents backs that up.
+    Runs inside the caller's transaction. Only one run happens at a time (the
+    Lambda allows one concurrent run, and the runner writes one check at a
+    time), and the partial unique index on incidents guarantees at most one
+    open incident per check even if that were ever broken.
     """
     policy = policy_for(check.kind, reminder_every)
 
     incident = await session.scalar(
-        select(Incident)
-        .where(Incident.check_id == check.id, Incident.resolved_at.is_(None))
-        .with_for_update()
+        select(Incident).where(Incident.check_id == check.id, Incident.resolved_at.is_(None))
     )
     rows = (
         await session.execute(

@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ s.subject }}</title>
+</head>
+{#
+  The summary a run sends when something changed. Same construction as the
+  alert email (alert.html): inline styles and tables for mail clients, the
+  stripe and the wordmark's period in the run's worst status.
+#}
+{%- set colour = {'down': '#c0432f', 'warn': '#a8740f', 'up': '#2f6fa6', 'none': '#848d89'}[s.tone] -%}
+{%- set serif = "Fraunces, Georgia, 'Times New Roman', serif" -%}
+{%- set sans = "Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" -%}
+{%- set mono = "'IBM Plex Mono', Menlo, Consolas, monospace" -%}
+{%- set label = "font-family:" ~ sans ~ ";font-size:11px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:#636c68;" -%}
+{%- macro shape(tone) -%}
+{%- if tone == 'up' -%}<svg width="12" height="12" viewBox="0 0 14 14" role="img" aria-label="Fixed"><circle cx="7" cy="7" r="6" fill="#2f6fa6"/></svg>
+{%- elif tone == 'warn' -%}<svg width="13" height="12" viewBox="0 0 15 14" role="img" aria-label="Warning"><path d="M7.5 0.8 L14.4 13.2 H0.6 Z" fill="#a8740f"/></svg>
+{%- else -%}<svg width="11" height="11" viewBox="0 0 13 13" role="img" aria-label="Down"><rect x="0.5" y="0.5" width="12" height="12" rx="1.5" fill="#c0432f"/></svg>
+{%- endif -%}
+{%- endmacro -%}
+<body style="margin:0;padding:0;background:#e9e7e1;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#e9e7e1;">
+<tr><td align="center" style="padding:32px 12px;">
+<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:100%;max-width:600px;background:#ffffff;border-radius:4px;overflow:hidden;">
+
+  <tr><td style="height:6px;line-height:6px;font-size:0;background:{{ colour }};">&nbsp;</td></tr>
+
+  <tr><td style="padding:30px 36px 6px;">
+    <div style="font-family:{{ serif }};font-weight:700;font-size:18px;letter-spacing:-0.04em;color:#0b1826;">Tideline<span style="color:{{ colour }};">.</span></div>
+    <h1 style="margin:16px 0 0;font-family:{{ serif }};font-weight:600;font-size:30px;line-height:1.12;letter-spacing:-0.035em;color:#1e1e1e;">{{ s.headline }}</h1>
+    <p style="margin:10px 0 0;font-family:{{ sans }};font-size:14px;color:#636c68;">Checked {{ when }}.</p>
+  </td></tr>
+
+  {% if s.new %}
+  <tr><td style="padding:22px 36px 4px;">
+    <div style="{{ label }}padding-bottom:4px;">New</div>
+    {% for i in s.new %}
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-bottom:1px solid #efede8;">
+      <tr>
+        <td width="24" valign="top" style="padding:15px 0 0;">{{ shape(i.view.tone) }}</td>
+        <td style="padding:12px 0;font-family:{{ sans }};font-size:15px;line-height:1.55;color:#1e1e1e;">
+          <strong style="font-weight:600;">{{ i.view.headline }}</strong><br>
+          <span style="color:#3a403e;">{{ i.view.summary }}</span>
+          {% if i.view.guidance %}<br><span style="font-size:14px;color:#636c68;"><strong style="font-weight:600;color:#3a403e;">What to do.</strong> {{ i.view.guidance }}</span>{% endif %}
+        </td>
+      </tr>
+    </table>
+    {% endfor %}
+  </td></tr>
+  {% endif %}
+
+  {% if s.fixed %}
+  <tr><td style="padding:22px 36px 4px;">
+    <div style="{{ label }}padding-bottom:4px;">Fixed</div>
+    {% for i in s.fixed %}
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-bottom:1px solid #efede8;">
+      <tr>
+        <td width="24" valign="top" style="padding:15px 0 0;">{{ shape('up') }}</td>
+        <td style="padding:12px 0;font-family:{{ sans }};font-size:15px;line-height:1.55;color:#1e1e1e;">{{ i.view.headline }}</td>
+      </tr>
+    </table>
+    {% endfor %}
+  </td></tr>
+  {% endif %}
+
+  {% if s.still_open %}
+  <tr><td style="padding:22px 36px 4px;">
+    <div style="{{ label }}padding-bottom:4px;">Still open</div>
+    {% for o in s.still_open %}
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-bottom:1px solid #efede8;">
+      <tr>
+        <td width="24" valign="top" style="padding:14px 0 0;">{{ shape('down' if o.severity == 'critical' else 'warn') }}</td>
+        <td style="padding:11px 0;font-family:{{ sans }};font-size:14px;line-height:1.5;color:#3a403e;"><strong style="font-weight:600;color:#1e1e1e;">{{ o.site_name }}, {{ check_noun(o.check_kind) }}</strong><br>{{ o.summary }}</td>
+      </tr>
+    </table>
+    {% endfor %}
+  </td></tr>
+  {% endif %}
+
+  <tr><td style="padding:24px 36px 30px;">
+    {% if s.link %}
+    <table role="presentation" cellpadding="0" cellspacing="0"><tr>
+      <td style="background:#0b1826;border-radius:8px;">
+        <a href="{{ s.link }}" style="display:inline-block;padding:13px 20px;font-family:{{ sans }};font-weight:600;font-size:14px;color:#f7f6f3;text-decoration:none;">Open in Tideline</a>
+      </td>
+    </tr></table>
+    {% endif %}
+  </td></tr>
+
+  <tr><td style="padding:18px 36px 22px;background:#f7f6f3;font-family:{{ sans }};font-size:12px;line-height:1.55;color:#636c68;">Tideline checks every site on the 1st and 15th. You get this email only when something changed. Alerts go to Owen only; Tideline never emails a client.</td></tr>
+
+</table>
+</td></tr>
+</table>
+</body>
+</html>

@@ -1,14 +1,14 @@
-# Local demo: one fake site served by the `fakesite` container (compose.demo.yaml).
-# Intervals are shortened so an outage opens an incident in under a minute.
+# Local demo (scripts/demo.sh): one fake site, served on the laptop.
 sites:
   - name: Fake Bakery
-    domain: fakesite
+    domain: fakesite.test
     expected_text: "Fake Bakery"
     urls:
-      - http://fakesite:8000/
-    intervals:
-      uptime: 10
-      content: 10
+      - http://127.0.0.1:8765/
     checks:
-      tls: false       # plain HTTP inside Docker: no certificate to check
-      domain: false    # "fakesite" is not a registered domain
+      tls: false         # plain HTTP on the laptop: no certificate to check
+      domain: false      # "fakesite.test" is not a registered domain
+      dns: false
+      email_auth: false
+      links: false
+      form: false

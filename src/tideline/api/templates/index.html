@@ -13,7 +13,7 @@
     <dl class="stats">
       <div><dt class="eyebrow">Sites</dt><dd>{{ o.total_sites }}</dd></div>
       <div><dt class="eyebrow">Checks</dt><dd>{{ o.total_checks }}</dd></div>
-      <div><dt class="eyebrow">Uptime, 30 d</dt><dd class="good">{{ o.uptime_30d|percent }}</dd></div>
+      <div><dt class="eyebrow">Next check</dt><dd>{{ o.next_run.strftime('%-d %b') }}</dd></div>
     </dl>
   </div>
 </section>
@@ -49,7 +49,7 @@
 <section class="section" aria-labelledby="all">
   <div class="section-head">
     <h2 id="all" class="label">All sites</h2>
-    <span class="muted" style="font-size: 13px;">Each cell is a day. Hollow days were before Tideline was watching.</span>
+    <span class="muted" style="font-size: 13px;">Each cell is a check, on the 1st and 15th. Hollow cells were before Tideline was watching.</span>
   </div>
   <div class="panel table-wrap">
     <table class="sites">
@@ -57,8 +57,8 @@
         <tr>
           <th scope="col"><span class="visually-hidden">Status</span></th>
           <th scope="col" class="label">Site</th>
-          <th scope="col" class="label hide-sm strip-col">Last 30 days</th>
-          <th scope="col" class="label num">Uptime</th>
+          <th scope="col" class="label hide-sm strip-col">Last 12 checks</th>
+          <th scope="col" class="label num">Up at</th>
           <th scope="col" class="label num hide-xs">Response</th>
           <th scope="col" class="label num hide-sm">Certificate</th>
           <th scope="col" class="label num hide-sm">Domain</th>
@@ -70,8 +70,7 @@
           <td style="width: 20px;">{{ m.shape(r.tone) }}</td>
           <td><a class="row-link site-name" href="/sites/{{ r.id }}/view"><strong>{{ r.name }}</strong><span class="mono">{{ r.domain }}</span></a></td>
           <td class="hide-sm">{{ m.strip(r.cells, r.strip_label) }}</td>
-          {% set ut = 'none' if r.uptime is none else ('up' if r.uptime >= 99.9 else ('warn' if r.uptime >= 99 else 'down')) %}
-          <td class="num w-{{ ut }}">{{ r.uptime|percent }}</td>
+          <td class="num w-{{ m.runs_tone(r.up_runs, r.runs) }}">{{ r.up_runs ~ '/' ~ r.runs if r.runs else '–' }}</td>
           <td class="num hide-xs">{{ r.p50_ms ~ ' ms' if r.p50_ms is not none else '–' }}</td>
           <td class="num hide-sm {{ 'soon' if r.cert_days is not none and r.cert_days < 21 }}">{{ r.cert_days ~ ' d' if r.cert_days is not none else '–' }}</td>
           <td class="num hide-sm {{ 'soon' if r.domain_days is not none and r.domain_days < 30 }}">{{ r.domain_days ~ ' d' if r.domain_days is not none else '–' }}</td>

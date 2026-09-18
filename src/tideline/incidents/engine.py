@@ -1,18 +1,21 @@
 """The incident state machine, as one pure function.
 
-After every check result the worker asks `decide()` what should happen. It
+After every check result the runner asks `decide()` what should happen. It
 touches no database and sends nothing, so every rule below has a unit test.
 
 States and transitions for one check:
 
     no incident ──(N non-ok results in a row)──────────► OPEN      alert: open
     open ──(a fail while the incident is only a warning)► OPEN      alert: escalated
-    open ──(still non-ok, 24 h since the last alert)────► OPEN      alert: reminder
+    open ──(still non-ok, `reminder_every` since the last alert)► OPEN  alert: reminder
     open ──(an ok result)───────────────────────────────► RESOLVED  alert: resolved
 
-N is the policy's `open_after`: 2 for uptime (so one blip never pages anyone),
-1 for everything else. Flapping (fail, ok, fail, ok) never opens an uptime
-incident because the streak resets on every ok.
+N is the policy's `open_after`. Tideline runs twice a month (docs/decisions/0005),
+so every kind opens on the first non-ok result: waiting for a second would mean
+waiting two weeks. One network blip still cannot open an uptime incident,
+because the uptime check itself retries once after 30 seconds before failing.
+Reminders are off by default (`reminder_every=None`): each run's summary email
+already lists what is still open.
 
 Checks whose incidents need a human decision (DNS drift, M4) set
 `resolve_on_ok=False`: an ok result does not close them.
@@ -41,7 +44,7 @@ class Action(StrEnum):
 @dataclass(frozen=True)
 class Policy:
     open_after: int = 1
-    reminder_every: timedelta = timedelta(hours=24)
+    reminder_every: timedelta | None = None
     resolve_on_ok: bool = True
 
 
@@ -101,16 +104,17 @@ def decide(
     if current == "fail" and incident.severity == "warning":
         return Decision(Action.ESCALATE, "critical")
 
-    if now - incident.last_alerted_at >= policy.reminder_every:
+    if (
+        policy.reminder_every is not None
+        and now - incident.last_alerted_at >= policy.reminder_every
+    ):
         return Decision(Action.REMIND, incident.severity)
 
     return Decision(Action.NONE, incident.severity)
 
 
-def policy_for(kind: str, reminder_every: timedelta = timedelta(hours=24)) -> Policy:
+def policy_for(kind: str, reminder_every: timedelta | None = None) -> Policy:
     """Per-kind incident rules from README section 2."""
-    if kind == "uptime":
-        return Policy(open_after=2, reminder_every=reminder_every)
     if kind == "dns":
         return Policy(open_after=1, reminder_every=reminder_every, resolve_on_ok=False)
     return Policy(open_after=1, reminder_every=reminder_every)

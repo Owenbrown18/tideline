@@ -10,6 +10,10 @@ from tideline.incidents.engine import Action, OpenIncident, Policy, decide, poli
 UPTIME = policy_for("uptime")
 TLS = policy_for("tls")
 DNS = policy_for("dns")
+# The engine still supports streaks and reminders; the twice-monthly schedule
+# just does not use them. These policies keep that behaviour under test.
+STREAK = Policy(open_after=2, reminder_every=timedelta(hours=24))
+DNS_REMINDING = policy_for("dns", reminder_every=timedelta(hours=24))
 
 
 def open_incident(severity="critical", alerted_hours_ago: float | None = 1) -> OpenIncident:
@@ -36,32 +40,45 @@ def replay(policy: Policy, statuses: list[str]) -> list[Action]:
 
 
 def test_policies_match_the_readme():
-    assert UPTIME.open_after == 2
+    # Runs are two weeks apart, so every kind opens on its first bad result,
+    # and there are no reminders: each run's summary lists what is still open.
+    assert UPTIME.open_after == 1
     assert TLS.open_after == 1
-    assert UPTIME.reminder_every == timedelta(hours=24)
+    assert UPTIME.reminder_every is None
     assert DNS.resolve_on_ok is False
+
+
+def test_one_uptime_failure_opens_at_twice_monthly_runs():
+    decision = decide(UPTIME, None, ["fail"], NOW)
+    assert decision.action is Action.OPEN
+    assert decision.severity == "critical"
+
+
+def test_no_reminders_by_default():
+    decision = decide(UPTIME, open_incident(alerted_hours_ago=24 * 30), ["fail"], NOW)
+    assert decision.action is Action.NONE
 
 
 def test_ok_with_no_incident_does_nothing():
     assert decide(UPTIME, None, ["ok"], NOW).action is Action.NONE
 
 
-def test_one_uptime_failure_does_not_open():
-    assert decide(UPTIME, None, ["fail", "ok"], NOW).action is Action.NONE
+def test_with_a_streak_policy_one_failure_does_not_open():
+    assert decide(STREAK, None, ["fail", "ok"], NOW).action is Action.NONE
 
 
-def test_first_ever_result_failing_does_not_open_uptime():
-    assert decide(UPTIME, None, ["fail"], NOW).action is Action.NONE
+def test_with_a_streak_policy_the_first_ever_failure_does_not_open():
+    assert decide(STREAK, None, ["fail"], NOW).action is Action.NONE
 
 
-def test_two_uptime_failures_in_a_row_open_critical():
-    decision = decide(UPTIME, None, ["fail", "fail"], NOW)
+def test_with_a_streak_policy_two_failures_in_a_row_open_critical():
+    decision = decide(STREAK, None, ["fail", "fail"], NOW)
     assert decision.action is Action.OPEN
     assert decision.severity == "critical"
 
 
 def test_ok_fail_fail_ok_opens_then_resolves():
-    assert replay(UPTIME, ["ok", "fail", "fail", "ok"]) == [
+    assert replay(STREAK, ["ok", "fail", "fail", "ok"]) == [
         Action.NONE,
         Action.NONE,
         Action.OPEN,
@@ -69,8 +86,8 @@ def test_ok_fail_fail_ok_opens_then_resolves():
     ]
 
 
-def test_flapping_never_opens_uptime():
-    assert set(replay(UPTIME, ["fail", "ok"] * 6)) == {Action.NONE}
+def test_flapping_never_opens_with_a_streak_policy():
+    assert set(replay(STREAK, ["fail", "ok"] * 6)) == {Action.NONE}
 
 
 def test_single_failure_opens_non_uptime_checks():
@@ -85,16 +102,16 @@ def test_warning_opens_with_warning_severity():
 
 
 def test_streak_with_any_fail_is_critical():
-    assert decide(UPTIME, None, ["warn", "fail"], NOW).severity == "critical"
+    assert decide(STREAK, None, ["warn", "fail"], NOW).severity == "critical"
 
 
 def test_still_failing_within_24h_sends_nothing():
-    decision = decide(UPTIME, open_incident(alerted_hours_ago=23.9), ["fail", "fail"], NOW)
+    decision = decide(STREAK, open_incident(alerted_hours_ago=23.9), ["fail", "fail"], NOW)
     assert decision.action is Action.NONE
 
 
 def test_still_failing_after_24h_sends_a_reminder():
-    decision = decide(UPTIME, open_incident(alerted_hours_ago=24), ["fail", "fail"], NOW)
+    decision = decide(STREAK, open_incident(alerted_hours_ago=24), ["fail", "fail"], NOW)
     assert decision.action is Action.REMIND
 
 
@@ -136,7 +153,7 @@ def test_dns_incident_is_not_resolved_by_an_ok_result():
 
 
 def test_dns_incident_still_reminds_while_waiting_for_acceptance():
-    decision = decide(DNS, open_incident(alerted_hours_ago=25), ["ok"], NOW)
+    decision = decide(DNS_REMINDING, open_incident(alerted_hours_ago=25), ["ok"], NOW)
     assert decision.action is Action.REMIND
 
 

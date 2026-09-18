@@ -191,7 +191,9 @@ def render_html(msg: AlertMessage) -> str:
 
 
 class Notifier(Protocol):
-    channel: str
+    @property
+    def channel(self) -> str:
+        """Where messages go: "ses" (email) or "log" (local development)."""
 
     async def send(self, msg: AlertMessage) -> None:
         """Deliver the alert or raise. The caller records only alerts that were sent."""

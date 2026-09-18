@@ -16,9 +16,14 @@
 {%- endmacro %}
 
 {% macro strip(cells, label, big=false) -%}
-<div class="strip{{ ' big' if big }}" role="img" aria-label="Last 30 days. {{ label }}">
+<div class="strip{{ ' big' if big }}" role="img" aria-label="Recent checks. {{ label }}">
 {%- for c in cells %}<span class="cell c-{{ c.tone }}" title="{{ c.label }}"></span>{% endfor -%}
 </div>
+{%- endmacro %}
+
+{# "Up at 11 of 12 checks": the tone of a record of runs. #}
+{% macro runs_tone(up, runs) -%}
+{{- 'none' if runs == 0 else ('up' if up == runs else ('down' if up == 0 else 'warn')) -}}
 {%- endmacro %}
 
 {% macro ago(when, now) -%}
