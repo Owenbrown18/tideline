@@ -369,3 +369,20 @@ def test_session_cookies_cannot_be_forged_or_outlive_the_password():
     assert not valid_session(settings, cookie, now=1_000 + 31 * 24 * 3600)
     # Changing the password signs every browser out.
     assert not valid_session(Settings(dashboard_password="two"), cookie, now=1_001)
+
+
+async def test_every_page_shares_the_hero_and_the_script(client, data):
+    from tideline.api.app import ASSETS
+
+    for path in ("/", f"/sites/{data['site']}/view", "/incidents/view", "/reports"):
+        page = await client.get(path, auth=DASH)
+        assert page.status_code == 200
+        assert '<section class="hero"' in page.text
+        assert '<dl class="stats">' in page.text
+        # Asset URLs carry a fingerprint of the files, so deploys are never cached away.
+        assert f"/static/tideline.js?v={ASSETS}" in page.text
+
+
+async def test_site_rows_open_their_page(client, data):
+    page = await client.get("/", auth=DASH)
+    assert f'<tr data-href="/sites/{data["site"]}/view">' in page.text

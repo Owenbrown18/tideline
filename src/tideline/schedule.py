@@ -25,6 +25,14 @@ def next_run(now: datetime, zone: str = "America/Vancouver") -> datetime:
     raise AssertionError("no run day within 40 days")  # unreachable: runs are monthly
 
 
+def next_report(now: datetime, zone: str = "America/Vancouver") -> datetime:
+    """When the next monthly reports go out: the next run on the 1st."""
+    run = next_run(now, zone)
+    while run.day != 1:
+        run = next_run(run, zone)
+    return run
+
+
 def is_report_day(now: datetime, zone: str = "America/Vancouver") -> bool:
     """Monthly reports go out with the run on the 1st."""
     return now.astimezone(ZoneInfo(zone)).day == 1

@@ -11,7 +11,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500;600;700&display=swap">
-  <link rel="stylesheet" href="/static/tideline.css?v={{ version }}">
+  <link rel="stylesheet" href="/static/tideline.css?v={{ assets }}">
+  <script src="/static/tideline.js?v={{ assets }}" defer></script>
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
@@ -40,5 +41,23 @@
   <span>Tideline {{ version }} · alerts and reports go to Owen only, never to clients.</span>
   <span><a href="/docs">API</a> · times in Pacific time · <a href="/logout">Sign out</a></span>
 </footer>
+
+<dialog id="report-dialog" class="report-dialog" aria-labelledby="report-title">
+  <div class="report-bar">
+    <div class="report-name">
+      <span class="eyebrow">Monthly report</span>
+      <strong id="report-title" data-title></strong>
+    </div>
+    <div class="report-actions">
+      <button class="btn btn-deep" type="button" data-print title="Opens the print window: choose Save as PDF">Save as PDF</button>
+      <a class="btn" data-download download>Download HTML</a>
+      <a class="btn" data-newtab target="_blank" rel="noopener">Open in new tab</a>
+      <button class="btn btn-icon" type="button" data-close aria-label="Close">
+        <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M2 2l10 10M12 2L2 12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+  </div>
+  <iframe title="Report preview" src="about:blank"></iframe>
+</dialog>
 </body>
 </html>

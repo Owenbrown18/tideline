@@ -6,7 +6,9 @@ status.obwebdesign.ca over HTTPS.
 """
 
 import asyncio
+import hashlib
 import logging
+import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
@@ -47,6 +49,7 @@ from tideline.db.models import CheckResult
 from tideline.db.session import make_engine, make_sessionmaker
 from tideline.observability.logging import configure_logging
 from tideline.reports.monthly import build_report, render_html
+from tideline.schedule import next_report
 
 log = logging.getLogger("tideline.api")
 HERE = Path(__file__).parent
@@ -54,6 +57,12 @@ TEMPLATES = Jinja2Templates(directory=str(HERE / "templates"))
 TEMPLATES.env.filters["checkname"] = brand.check_name
 TEMPLATES.env.filters["numberword"] = brand.number_word
 TEMPLATES.env.filters["percent"] = brand.percent
+# A fingerprint of the stylesheet and script, added to their URLs, so a deploy
+# that changes them is never hidden behind a browser's cached copy.
+ASSETS = hashlib.sha256(
+    b"".join((HERE / "static" / name).read_bytes() for name in ("tideline.css", "tideline.js"))
+).hexdigest()[:10]
+TEMPLATES.env.globals["assets"] = ASSETS
 
 
 @asynccontextmanager
@@ -207,7 +216,15 @@ async def dashboard_incidents(request: Request, session: Session) -> HTMLRespons
 @dashboard.get("/reports", response_class=HTMLResponse, summary="Reports")
 async def dashboard_reports(request: Request, session: Session) -> HTMLResponse:
     months = await views.reports_page(session)
-    return await _page(request, session, "reports.html", "reports", months=months)
+    zone = request.app.state.settings.display_timezone
+    return await _page(
+        request,
+        session,
+        "reports.html",
+        "reports",
+        months=months,
+        next_report=next_report(datetime.now(UTC), zone),
+    )
 
 
 @dashboard.post("/sites/{site_id}/dns-baseline/accept-form", summary="Accept DNS (dashboard)")
@@ -245,8 +262,14 @@ async def favicon(session: Session) -> Response:
 
 
 @dashboard.get("/reports/{site_id}/{month}", response_class=HTMLResponse, summary="Monthly report")
-async def dashboard_report(request: Request, site_id: int, month: str, session: Session) -> Any:
-    """The same HTML that gets emailed, at a URL, e.g. /reports/1/2026-09."""
+async def dashboard_report(
+    request: Request, site_id: int, month: str, session: Session, download: bool = False
+) -> Any:
+    """The same HTML that gets emailed, at a URL, e.g. /reports/1/2026-09.
+
+    `?download=1` sends it as a file, named for the client and the month, to
+    attach to an email or keep.
+    """
     try:
         year_text, month_text = month.split("-")
         year, month_number = int(year_text), int(month_text)
@@ -262,7 +285,11 @@ async def dashboard_report(request: Request, site_id: int, month: str, session: 
         raise HTTPException(
             status.HTTP_404_NOT_FOUND, detail=f"no site with id {site_id}"
         ) from None
-    return HTMLResponse(render_html(report))
+    headers = {}
+    if download:
+        name = re.sub(r"[^a-z0-9]+", "-", report.site_name.lower()).strip("-")
+        headers["Content-Disposition"] = f'attachment; filename="{name}-{month}-report.html"'
+    return HTMLResponse(render_html(report), headers=headers)
 
 
 # --- signing in ----------------------------------------------------------------------

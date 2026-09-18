@@ -400,7 +400,7 @@ async def site_page(
         domain=site.domain,
         tone=tone,
         headline=_site_headline(tone, cards, site.name),
-        subline=f"{passing} of {len(cards)} checks passing  ·  {since}",
+        subline=since,
         checks=cards,
         cells=site_cells,
         strip_label=strip_summary(site_cells),

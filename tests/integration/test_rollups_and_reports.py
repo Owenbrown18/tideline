@@ -292,3 +292,26 @@ async def test_reports_page_links_each_month(client, site_with_a_day, sessionmak
     assert "September 2026" in page.text
     assert f'href="/reports/{site_with_a_day["site"]}/2026-09"' in page.text
     assert "up 0/1" in page.text
+
+
+async def test_a_report_downloads_as_a_named_file(client, site_with_a_day, sessionmaker):
+    async with sessionmaker() as session, session.begin():
+        await rollup_day(session, DAY)
+    site_id = site_with_a_day["site"]
+    page = await client.get(f"/reports/{site_id}/2026-09", auth=DASH)
+    assert "content-disposition" not in page.headers
+    assert "@media print" in page.text  # saving it as a PDF gives a clean page
+
+    download = await client.get(f"/reports/{site_id}/2026-09?download=1", auth=DASH)
+    assert download.headers["content-disposition"] == (
+        'attachment; filename="daves-bakery-2026-09-report.html"'
+    )
+
+
+async def test_reports_open_in_the_dialog(client, site_with_a_day, sessionmaker):
+    async with sessionmaker() as session, session.begin():
+        await rollup_day(session, DAY)
+    page = await client.get("/reports", auth=DASH)
+    assert 'data-report="Daves&#39; Bakery, September 2026"' in page.text
+    assert 'id="report-dialog"' in page.text
+    assert "Next report" in page.text

@@ -2,21 +2,16 @@
 {% import "_macros.html" as m %}
 {% block title %}{{ p.name }} · Tideline{% endblock %}
 
-{% block body %}
-<div style="display: flex; flex-direction: column; gap: 14px;">
-  <a class="crumb" href="/">Overview  /  {{ p.name }}</a>
-  <div class="site-head">
-    <div>
-      <h1>{{ p.headline }}<span class="p-{{ p.tone }}" style="color: {{ {'up': '#2f6fa6', 'warn': '#a8740f', 'down': '#c0432f', 'none': '#848d89'}[p.tone] }};">.</span></h1>
-      <div class="sub"><span class="mono">{{ p.domain }}</span>  ·  {{ p.subline }}</div>
-    </div>
-    <div class="actions">
-      <a class="btn" href="https://{{ p.domain }}/" rel="noopener">Visit site</a>
-      <a class="btn btn-deep" href="/reports/{{ p.id }}/{{ now|local('%Y-%m') }}">{{ now|local('%B') }} report</a>
-    </div>
-  </div>
-</div>
+{% block hero %}
+{% set response = ('Response', p.uptime.p50_ms, ' ms') if p.uptime.p50_ms is not none else ('Response', '–') %}
+{% call m.hero(p.name, p.headline, p.tone, p.domain ~ '  ·  ' ~ p.subline,
+               [('Passing', p.passing ~ '/' ~ p.enabled), ('Up at', (p.up_runs ~ '/' ~ p.runs) if p.runs else '–'), response]) %}
+  <a class="btn btn-ghost" href="https://{{ p.domain }}/" rel="noopener" target="_blank">Visit site</a>
+  <a class="btn btn-light" href="/reports/{{ p.id }}/{{ now|local('%Y-%m') }}" data-report="{{ p.name }}, {{ now|local('%B %Y') }}">{{ now|local('%B') }} report</a>
+{% endcall %}
+{% endblock %}
 
+{% block body %}
 <div class="site-grid">
   <div style="display: flex; flex-direction: column; gap: 28px; min-width: 0;">
     <section class="section" aria-labelledby="checks">

@@ -37,3 +37,22 @@
 {%- endif -%}
 {%- endif -%}
 {%- endmacro %}
+
+{# The dark header every page starts with: a label, the one sentence that says
+   how things are, one line under it, and three numbers. The same shape and
+   height on every page, so moving between pages does not jump. #}
+{% macro hero(eyebrow, title, tone, sub, stats) -%}
+<section class="hero" aria-labelledby="headline">
+  <div class="hero-inner">
+    <div class="hero-copy">
+      <span class="eyebrow when">{{ eyebrow }}</span>
+      <h1 id="headline">{{ title }}<span class="p-{{ tone }}">.</span></h1>
+      <p>{{ sub }}</p>
+      {% if caller is defined %}<div class="hero-actions">{{ caller() }}</div>{% endif %}
+    </div>
+    <dl class="stats">
+      {% for stat in stats %}<div><dt class="eyebrow">{{ stat[0] }}</dt><dd>{{ stat[1] }}{% if stat|length > 2 %}<small>{{ stat[2] }}</small>{% endif %}</dd></div>{% endfor %}
+    </dl>
+  </div>
+</section>
+{%- endmacro %}

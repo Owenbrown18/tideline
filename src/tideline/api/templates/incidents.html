@@ -3,17 +3,12 @@
 {% block title %}Incidents · Tideline{% endblock %}
 
 {% block hero %}
-<section class="hero" aria-labelledby="headline">
-  <div class="hero-inner">
-    <div class="hero-copy">
-      <span class="eyebrow when">Incidents</span>
-      {% set crit = page.open|selectattr('severity', 'equalto', 'critical')|list %}
-      {% set warns = page.open|length - crit|length %}
-      <h1 id="headline">{% if crit %}{{ crit|length|numberword }} need{{ 's' if crit|length == 1 }} you{% elif warns %}Nothing urgent{% else %}Nothing open{% endif %}<span class="p-{{ state }}">.</span></h1>
-      <p>{% if warns %}{{ warns|numberword }} warning{{ '' if warns == 1 else 's' }} can wait. {% endif %}{% if page.resolved %}{{ page.resolved|length|numberword }} resolved{% else %}None resolved{% endif %} in the last 30 days.</p>
-    </div>
-  </div>
-</section>
+{% set crit = page.open|selectattr('severity', 'equalto', 'critical')|list %}
+{% set warns = page.open|length - crit|length %}
+{% set title = (crit|length|numberword ~ (' needs you' if crit|length == 1 else ' need you')) if crit else ('Nothing urgent' if warns else 'Nothing open') %}
+{% set sub = ((warns|numberword ~ (' warning can' if warns == 1 else ' warnings can') ~ ' wait. ') if warns else '') ~ ((page.resolved|length|numberword ~ ' resolved') if page.resolved else 'None resolved') ~ ' in the last 30 days.' %}
+{{ m.hero('Incidents', title, state, sub,
+          [('Need you', crit|length), ('Warnings', warns), ('Resolved, 30 d', page.resolved|length)]) }}
 {% endblock %}
 
 {% block body %}

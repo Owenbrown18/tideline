@@ -93,3 +93,13 @@ def test_only_fixes_read_as_good_news():
     assert summary.headline == "One problem fixed since the last check."
     assert summary.tone == "up"
     assert "—" not in render_text(summary) + render_html(summary)
+
+
+def test_next_report_is_the_next_first_of_the_month():
+    from tideline.schedule import next_report
+
+    assert next_report(datetime(2026, 9, 18, 12, 0, tzinfo=UTC)) == datetime(
+        2026, 10, 1, 14, 0, tzinfo=UTC
+    )
+    # On the 1st after 07:00 Pacific, the next one is a month away.
+    assert next_report(datetime(2026, 10, 1, 15, 0, tzinfo=UTC)).month == 11

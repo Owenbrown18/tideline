@@ -3,20 +3,8 @@
 {% block title %}{{ o.headline.text }} · Tideline{% endblock %}
 
 {% block hero %}
-<section class="hero" aria-labelledby="headline">
-  <div class="hero-inner">
-    <div class="hero-copy">
-      <span class="eyebrow when">{{ now|local('%A %-d %B') }}</span>
-      <h1 id="headline">{{ o.headline.text }}<span class="p-{{ o.headline.tone }}">.</span></h1>
-      <p>{{ o.headline.detail }}</p>
-    </div>
-    <dl class="stats">
-      <div><dt class="eyebrow">Sites</dt><dd>{{ o.total_sites }}</dd></div>
-      <div><dt class="eyebrow">Checks</dt><dd>{{ o.total_checks }}</dd></div>
-      <div><dt class="eyebrow">Next check</dt><dd>{{ o.next_run.strftime('%-d %b') }}</dd></div>
-    </dl>
-  </div>
-</section>
+{{ m.hero(now|local('%A %-d %B'), o.headline.text, o.headline.tone, o.headline.detail,
+          [('Sites', o.total_sites), ('Checks', o.total_checks), ('Next check', o.next_run.strftime('%-d %b'))]) }}
 {% endblock %}
 
 {% block body %}
@@ -25,7 +13,7 @@
   <h2 id="needs" class="label">Needs you</h2>
   <div class="panel">
     {% for n in o.needs_you %}
-    <div class="need">
+    <div class="need" data-href="/sites/{{ n.site_id }}/view">
       {{ m.shape('down') }}
       <span class="site-name"><strong>{{ n.site_name }}</strong><span class="mono">{{ n.domain }}</span></span>
       <span class="what">{{ n.summary }}</span>
@@ -34,7 +22,7 @@
     </div>
     {% endfor %}
     {% if o.warnings %}
-    <div class="need">
+    <div class="need" data-href="/incidents/view">
       {{ m.shape('warn') }}
       <span class="site-name"><strong>{{ o.warnings|length }} warning{{ '' if o.warnings|length == 1 else 's' }}</strong><span class="mono">{{ o.warnings|map(attribute='check_name')|unique|join(', ') }}</span></span>
       <span class="what">Nothing is breaking. {{ 'Each one is' if o.warnings|length > 1 else 'It is' }} worth fixing when you have time.</span>
@@ -66,7 +54,7 @@
       </thead>
       <tbody>
       {% for r in o.rows %}
-        <tr>
+        <tr data-href="/sites/{{ r.id }}/view">
           <td style="width: 20px;">{{ m.shape(r.tone) }}</td>
           <td><a class="row-link site-name" href="/sites/{{ r.id }}/view"><strong>{{ r.name }}</strong><span class="mono">{{ r.domain }}</span></a></td>
           <td class="hide-sm">{{ m.strip(r.cells, r.strip_label) }}</td>

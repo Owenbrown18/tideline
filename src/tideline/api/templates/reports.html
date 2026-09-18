@@ -3,15 +3,8 @@
 {% block title %}Reports · Tideline{% endblock %}
 
 {% block hero %}
-<section class="hero" aria-labelledby="headline">
-  <div class="hero-inner">
-    <div class="hero-copy">
-      <span class="eyebrow when">Reports</span>
-      <h1 id="headline">Monthly reports<span class="p-{{ state }}">.</span></h1>
-      <p>One per site, emailed to you on the morning of the 1st. Each page below is the same report, ready to forward.</p>
-    </div>
-  </div>
-</section>
+{{ m.hero('Reports', 'Monthly reports', state, 'One per site, emailed to you on the 1st. Open one to save it as a PDF for the client.',
+          [('Months', months|length), ('Sites', (months[0].sites|length) if months else 0), ('Next report', next_report.strftime('%-d %b'))]) }}
 {% endblock %}
 
 {% block body %}
@@ -21,7 +14,7 @@
   <div class="panel">
     {% for s in month.sites %}
     {% set ut = m.runs_tone(s.up_runs, s.runs) %}
-    <a class="list-row" href="/reports/{{ s.id }}/{{ month.key }}">
+    <a class="list-row" href="/reports/{{ s.id }}/{{ month.key }}" data-report="{{ s.name }}, {{ month.label }}">
       {{ m.shape(ut) }}
       <span class="site-name"><strong>{{ s.name }}</strong><span class="mono">{{ s.domain }}</span></span>
       <span class="what"></span>
@@ -31,6 +24,6 @@
   </div>
 </section>
 {% else %}
-<p class="quiet panel">No reports yet. The first daily summary is written just after midnight.</p>
+<p class="quiet panel">No reports yet. The first appears after the first check run.</p>
 {% endfor %}
 {% endblock %}
