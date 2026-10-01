@@ -8,7 +8,7 @@
 # the build stage; the final image gets only the installed packages.
 
 # ---- build ------------------------------------------------------------------
-FROM public.ecr.aws/lambda/python:3.12-arm64@sha256:6ad7dc750cc64bbebc95a0d87a732f0b9fc6bf27ab119fd686b0d1baacc0c8be AS build
+FROM public.ecr.aws/lambda/python:3.14-arm64@sha256:5f33784af7419447fafc87ef58950935f7c1b24976d621bf2f8744d829fb46d2 AS build
 COPY --from=ghcr.io/astral-sh/uv:0.12.15@sha256:62f8c047d0a0e9ece6b53fc63df902585a67a47a7f318ddec4a37db586edc8e3 /uv /usr/local/bin/uv
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never
 WORKDIR /build
@@ -24,7 +24,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install --system --target /packages --no-deps .
 
 # ---- runtime ----------------------------------------------------------------
-FROM public.ecr.aws/lambda/python:3.12-arm64@sha256:6ad7dc750cc64bbebc95a0d87a732f0b9fc6bf27ab119fd686b0d1baacc0c8be
+FROM public.ecr.aws/lambda/python:3.14-arm64@sha256:5f33784af7419447fafc87ef58950935f7c1b24976d621bf2f8744d829fb46d2
 COPY --from=build /packages ${LAMBDA_TASK_ROOT}
 COPY alembic.ini ${LAMBDA_TASK_ROOT}/
 COPY alembic ${LAMBDA_TASK_ROOT}/alembic
