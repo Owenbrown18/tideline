@@ -4,7 +4,7 @@
 
 It is a Python service on AWS Lambda, built as a container image, with Terraform, tests, structured logs, metrics and an alarm. It costs well under USD 1 a month. Its working name was Sitewatch; [docs/brand.md](docs/brand.md) explains the rename.
 
-> **Status (2026-09-18): live on AWS Lambda.** https://status.obwebdesign.ca/ (sign-in required) watches 11 sites with 86 checks across 8 kinds. A full run takes about 21 seconds on Lambda. 376 tests.
+> **Status (2026-09-18): live on AWS Lambda.** https://status.obwebdesign.ca/ (sign-in required) watches 11 sites with 86 checks across 8 kinds. A full run takes about 21 seconds on Lambda. 378 tests, passing on GitHub Actions (2026-09-30).
 >
 > **History:** version 1 (2026-09-17) ran every 5 minutes on an always-on EC2 server with Postgres, about USD 20 a month. Owen only needs a twice-monthly check and a monthly report, so on 2026-09-18 it moved to Lambda, a scheduler and a SQLite file in S3 ([decision 0005](docs/decisions/0005-serverless-twice-monthly.md)). The server-era milestones below are kept as they happened.
 >
