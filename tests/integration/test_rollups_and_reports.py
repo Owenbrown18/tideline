@@ -432,6 +432,18 @@ async def test_list_rows_end_in_a_meta_line_or_a_figure(client, site_with_a_day,
     stylesheet places: .meta under the description, .figure in the last column."""
     async with sessionmaker() as session, session.begin():
         await rollup_day(session, DAY)
+        # The incidents page shows the last 30 days, so the fixture's September
+        # incident drops off it in October; this one is always recent.
+        now = datetime.now(UTC)
+        session.add(
+            Incident(
+                check_id=site_with_a_day["uptime"],
+                opened_at=now - timedelta(hours=2),
+                resolved_at=now - timedelta(hours=1),
+                severity="critical",
+                summary="https://davesbakery.ca/ is down: HTTP 503",
+            )
+        )
     site_id = site_with_a_day["site"]
 
     reports = (await client.get("/reports", auth=DASH)).text

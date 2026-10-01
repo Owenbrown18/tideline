@@ -7,8 +7,11 @@ when Owen opens the dashboard.
 
 import base64
 import http.server
+import sqlite3
 import threading
 from collections.abc import Iterator
+from contextlib import closing
+from datetime import date
 from pathlib import Path
 
 import boto3
@@ -17,6 +20,7 @@ from moto import mock_aws
 
 from tideline import aws_lambda
 from tideline.config import get_settings
+from tideline.reports.monthly import previous_month
 
 REGION = "ca-central-1"
 BUCKET = "tideline-lambda-test"
@@ -139,10 +143,26 @@ def test_reading_pages_never_uploads_the_database(aws):
     assert s3.head_object(Bucket=BUCKET, Key="tideline.db")["ETag"] == before
 
 
+def _checked_day() -> date:
+    """The day the run's rollup was written for, read from the database file."""
+    path = get_settings().database_url.split("///", 1)[1]
+    with closing(sqlite3.connect(path)) as db:
+        (day,) = db.execute("SELECT day FROM daily_rollups").fetchone()
+    return date.fromisoformat(day)
+
+
 def test_migrate_and_report_tasks(aws):
     assert aws_lambda.run_handler({"task": "migrate"}, None) == {"task": "migrate"}
     aws_lambda.run_handler({}, None)
-    assert aws_lambda.run_handler({"task": "report", "month": "2026-09"}, None)["sent"] == 1
+    # The run checks the site today, so the month comes from what it wrote, not
+    # from the calendar: a hard-coded "2026-09" failed once October began.
+    checked = _checked_day()
+    month = f"{checked.year}-{checked.month:02d}"
+    assert aws_lambda.run_handler({"task": "report", "month": month}, None)["sent"] == 1
+    # The month before, Tideline never checked the site, so it gets no report.
+    year, number = previous_month(checked)
+    before = f"{year}-{number:02d}"
+    assert aws_lambda.run_handler({"task": "report", "month": before}, None)["sent"] == 0
     with pytest.raises(ValueError, match="unknown task"):
         aws_lambda.run_handler({"task": "nonsense"}, None)
 
@@ -154,8 +174,6 @@ def test_missing_secrets_stop_the_function(aws):
 
 
 def test_a_request_that_writes_is_saved_back_to_s3(aws):
-    import sqlite3
-
     aws_lambda.run_handler({}, None)
     s3 = boto3.client("s3", region_name=REGION)
     before = s3.head_object(Bucket=BUCKET, Key="tideline.db")["ETag"]
